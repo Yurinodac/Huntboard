@@ -5,6 +5,7 @@ import { DATABASE_PATH, DATA_DIR, PORT } from "./config.js";
 import { migrate } from "./db/migrate.js";
 import { openDatabase } from "./db/pool.js";
 import { registerApplicationsRoutes } from "./routes/applications.js";
+import { registerGmailOAuthRoutes } from "./routes/gmailOAuth.js";
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 export const db = openDatabase(DATABASE_PATH);
@@ -20,6 +21,7 @@ app.use(
 );
 
 registerApplicationsRoutes(app, db);
+registerGmailOAuthRoutes(app, db);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
