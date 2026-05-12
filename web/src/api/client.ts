@@ -58,12 +58,13 @@ export type ApplicationThread = {
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const hasBody = Boolean(init?.body);
   const response = await fetch(path, {
+    ...init,
     headers: {
-      "Content-Type": "application/json",
+      ...(hasBody ? { "Content-Type": "application/json" } : {}),
       ...(init?.headers ?? {}),
     },
-    ...init,
   });
 
   if (!response.ok) {
@@ -113,4 +114,50 @@ export async function getApplicationThreads(id: string) {
     `/api/v1/applications/${id}/threads`,
   );
   return data.threads ?? [];
+}
+
+export type GmailStatus = {
+  connected: boolean;
+  last_sync_at: string | null;
+};
+
+export type GmailSuggestion = {
+  application_id: string;
+  gmail_thread_id: string;
+  subject: string;
+  from: string;
+  snippet: string;
+  score: number;
+  reason_codes: string[];
+};
+
+export type GmailSyncResult = {
+  suggestions: GmailSuggestion[];
+  synced_at: string;
+};
+
+export function getGmailStatus() {
+  return request<GmailStatus>("/api/v1/gmail/status");
+}
+
+export async function getGmailOAuthStartUrl() {
+  const data = await request<{ authUrl: string }>("/api/v1/gmail/oauth/start");
+  return data.authUrl;
+}
+
+export function postGmailSync() {
+  return request<GmailSyncResult>("/api/v1/gmail/sync", { method: "POST" });
+}
+
+export function confirmGmailSuggestion(application_id: string, gmail_thread_id: string) {
+  return request<{
+    id: string;
+    application_id: string;
+    gmail_thread_id: string;
+    confirmed_at: string;
+    created_at: string;
+  }>("/api/v1/suggestions/confirm", {
+    method: "POST",
+    body: JSON.stringify({ application_id, gmail_thread_id }),
+  });
 }

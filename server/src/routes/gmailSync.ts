@@ -86,6 +86,13 @@ export function registerGmailSyncRoutes(
     ((oauth2Client: InstanceType<typeof google.auth.OAuth2>) =>
       google.gmail({ version: "v1", auth: oauth2Client }));
 
+  app.get("/api/v1/gmail/status", (_req, res) => {
+    const tokens = oauthRepo.get();
+    const connected = Boolean(tokens?.refresh_token && tokens?.access_token);
+    const last_sync_at = syncStateRepo.get("last_sync_at") ?? null;
+    res.json({ connected, last_sync_at });
+  });
+
   app.post("/api/v1/gmail/sync", async (_req, res) => {
     try {
       const tokens = oauthRepo.get();

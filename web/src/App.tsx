@@ -1,13 +1,10 @@
 import { Link, Route, Routes } from "react-router-dom";
 import ApplicationDetail from "./pages/ApplicationDetail";
 import ApplicationsList from "./pages/ApplicationsList";
+import GmailPanel from "./pages/GmailPanel";
 
 function HomePage() {
   return <h1>Job tracker</h1>;
-}
-
-function GmailPage() {
-  return <h1>Gmail</h1>;
 }
 
 export default function App() {
@@ -25,7 +22,7 @@ export default function App() {
         <Route path="/applications" element={<ApplicationsList />} />
         <Route path="/applications/new" element={<ApplicationDetail />} />
         <Route path="/applications/:id" element={<ApplicationDetail />} />
-        <Route path="/gmail" element={<GmailPage />} />
+        <Route path="/gmail" element={<GmailPanel />} />
       </Routes>
     </div>
   );
