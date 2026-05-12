@@ -6,6 +6,8 @@ export const DATABASE_PATH = path.join(DATA_DIR, "app.db");
 
 export const FRONTEND_ORIGIN =
   process.env.FRONTEND_ORIGIN ?? "http://127.0.0.1:5173";
+export const GMAIL_SYNC_DAYS = Number(process.env.GMAIL_SYNC_DAYS ?? 30);
+export const GMAIL_SYNC_MAX = Number(process.env.GMAIL_SYNC_MAX ?? 50);
 
 /** OAuth: optional until user configures Gmail — validate only when Gmail routes run */
 export function googleOAuthEnv() {

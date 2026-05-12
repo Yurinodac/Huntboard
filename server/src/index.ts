@@ -6,6 +6,7 @@ import { migrate } from "./db/migrate.js";
 import { openDatabase } from "./db/pool.js";
 import { registerApplicationsRoutes } from "./routes/applications.js";
 import { registerGmailOAuthRoutes } from "./routes/gmailOAuth.js";
+import { registerGmailSyncRoutes } from "./routes/gmailSync.js";
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 export const db = openDatabase(DATABASE_PATH);
@@ -22,6 +23,7 @@ app.use(
 
 registerApplicationsRoutes(app, db);
 registerGmailOAuthRoutes(app, db);
+registerGmailSyncRoutes(app, db);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
