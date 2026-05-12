@@ -4,6 +4,7 @@ import express from "express";
 import { DATABASE_PATH, DATA_DIR, PORT } from "./config.js";
 import { migrate } from "./db/migrate.js";
 import { openDatabase } from "./db/pool.js";
+import { registerApplicationsRoutes } from "./routes/applications.js";
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 export const db = openDatabase(DATABASE_PATH);
@@ -17,6 +18,8 @@ app.use(
     credentials: true,
   }),
 );
+
+registerApplicationsRoutes(app, db);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
