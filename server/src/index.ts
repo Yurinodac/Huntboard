@@ -1,6 +1,13 @@
+import fs from "node:fs";
 import cors from "cors";
 import express from "express";
-import { PORT } from "./config.js";
+import { DATABASE_PATH, DATA_DIR, PORT } from "./config.js";
+import { migrate } from "./db/migrate.js";
+import { openDatabase } from "./db/pool.js";
+
+fs.mkdirSync(DATA_DIR, { recursive: true });
+export const db = openDatabase(DATABASE_PATH);
+migrate(db);
 
 const app = express();
 app.use(express.json());
