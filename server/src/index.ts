@@ -1,17 +1,18 @@
 import cors from "cors";
 import express from "express";
-import { config } from "./config.js";
+import { PORT } from "./config.js";
 
 const app = express();
+app.use(express.json());
+app.use(
+  cors({
+    origin: [/http:\/\/localhost:\d+/, /http:\/\/127\.0\.0\.1:\d+/],
+    credentials: true,
+  }),
+);
 
-const localhostOriginRegex = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+app.get("/health", (_req, res) => res.json({ ok: true }));
 
-app.use(cors({ origin: localhostOriginRegex }));
-
-app.get("/health", (_req, res) => {
-  res.status(200).json({ ok: true });
-});
-
-app.listen(config.PORT, "127.0.0.1", () => {
-  console.log(`listening on http://127.0.0.1:${config.PORT}`);
+app.listen(PORT, "127.0.0.1", () => {
+  console.log(`API http://127.0.0.1:${PORT}`);
 });
