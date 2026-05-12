@@ -3,6 +3,10 @@
   "private": true,
   "workspaces": ["server", "web"],
   "scripts": {
-    "dev": "npm run dev -w server"
+    "dev": "npm run dev -w server",
+    "dev:all": "concurrently \"npm run dev -w server\" \"npm run dev -w web\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
   }
 }
