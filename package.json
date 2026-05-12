@@ -1,0 +1,8 @@
+{
+  "name": "job-tracker",
+  "private": true,
+  "workspaces": ["server", "web"],
+  "scripts": {
+    "dev": "npm run dev -w server"
+  }
+}
