@@ -16,15 +16,17 @@ Out of scope for **v1**: hosted deployment, mobile-first UX, non-Gmail providers
 
 ## 2. Constraints and assumptions
 
-| Item | Decision |
-|------|----------|
-| Runtime | Local web app: browser UI + API server on the same machine |
-| Primary device | Laptop carried between locations |
-| Email | Gmail only (Google OAuth 2.0, Gmail API) |
-| Linking policy | Heuristic **suggestions**; user **confirms**, **dismisses**, or **reassigns**; no automatic persistence of application↔thread links without confirmation |
-| Application detail level | “Standard B” (see §4) |
-| LLM | **Not in v1** |
-| Data residency | SQLite and OAuth tokens on disk; no third-party analytics in v1 |
+
+| Item                     | Decision                                                                                                                                                 |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runtime                  | Local web app: browser UI + API server on the same machine                                                                                               |
+| Primary device           | Laptop carried between locations                                                                                                                         |
+| Email                    | Gmail only (Google OAuth 2.0, Gmail API)                                                                                                                 |
+| Linking policy           | Heuristic **suggestions**; user **confirms**, **dismisses**, or **reassigns**; no automatic persistence of application↔thread links without confirmation |
+| Application detail level | “Standard B” (see §4)                                                                                                                                    |
+| LLM                      | **Not in v1**                                                                                                                                            |
+| Data residency           | SQLite and OAuth tokens on disk; no third-party analytics in v1                                                                                          |
+
 
 **Assumption:** The user can create a **Google Cloud project** and an **OAuth client** (installed/desktop or web with `http://127.0.0.1:<port>/oauth/callback`). For personal use, keeping the OAuth consent screen in **Testing** and adding the user as a test user is acceptable.
 
@@ -41,24 +43,26 @@ Rationale: Strong documentation for Gmail OAuth in Node, fast iteration for UI, 
 
 ### 4.1 Application (`applications`)
 
-| Field | Type | Notes |
-|-------|------|--------|
-| `id` | UUID or integer PK | |
-| `company` | text | Required |
-| `title` | text | Job title; required |
-| `applied_date` | date | ISO date |
-| `status` | enum | Controlled list (see §4.3) |
-| `posting_url` | text | Optional URL |
-| `notes` | text | Free-form |
-| `location` | text | e.g. city, region, “US” |
-| `work_arrangement` | enum | e.g. `remote`, `hybrid`, `onsite`, `unknown` |
-| `salary_min` | nullable number | Optional |
-| `salary_max` | nullable number | Optional; if only one number known, store in min or max with convention documented in code |
-| `contact_name` | text | Optional |
-| `contact_email` | text | Optional |
-| `file_links` | JSON array of strings | URLs or `file://` paths as user-supplied strings; no file upload in v1 |
-| `created_at` | datetime | |
-| `updated_at` | datetime | |
+
+| Field              | Type                  | Notes                                                                                      |
+| ------------------ | --------------------- | ------------------------------------------------------------------------------------------ |
+| `id`               | UUID or integer PK    |                                                                                            |
+| `company`          | text                  | Required                                                                                   |
+| `title`            | text                  | Job title; required                                                                        |
+| `applied_date`     | date                  | ISO date                                                                                   |
+| `status`           | enum                  | Controlled list (see §4.3)                                                                 |
+| `posting_url`      | text                  | Optional URL                                                                               |
+| `notes`            | text                  | Free-form                                                                                  |
+| `location`         | text                  | e.g. city, region, “US”                                                                    |
+| `work_arrangement` | enum                  | e.g. `remote`, `hybrid`, `onsite`, `unknown`                                               |
+| `salary_min`       | nullable number       | Optional                                                                                   |
+| `salary_max`       | nullable number       | Optional; if only one number known, store in min or max with convention documented in code |
+| `contact_name`     | text                  | Optional                                                                                   |
+| `contact_email`    | text                  | Optional                                                                                   |
+| `file_links`       | JSON array of strings | URLs or `file://` paths as user-supplied strings; no file upload in v1                     |
+| `created_at`       | datetime              |                                                                                            |
+| `updated_at`       | datetime              |                                                                                            |
+
 
 ### 4.3 Application status enum (v1)
 
@@ -68,13 +72,15 @@ Suggested values (adjustable in migrations if needed): `interested`, `applied`, 
 
 Stores **only user-confirmed** associations between an application and a Gmail thread.
 
-| Field | Type | Notes |
-|-------|------|--------|
-| `id` | PK | |
-| `application_id` | FK → applications | |
-| `gmail_thread_id` | text | Gmail `threadId` |
-| `confirmed_at` | datetime | |
-| `created_at` | datetime | |
+
+| Field             | Type              | Notes            |
+| ----------------- | ----------------- | ---------------- |
+| `id`              | PK                |                  |
+| `application_id`  | FK → applications |                  |
+| `gmail_thread_id` | text              | Gmail `threadId` |
+| `confirmed_at`    | datetime          |                  |
+| `created_at`      | datetime          |                  |
+
 
 Unique constraint on (`application_id`, `gmail_thread_id`) to avoid duplicates.
 
@@ -133,7 +139,7 @@ REST JSON under `/api/v1`:
 - `GET /oauth/callback` — Google redirect  
 - `POST /gmail/sync` — run fetch + matching; returns suggestions + optional thread summaries for linked apps  
 - `GET /applications/:id/threads` — confirmed threads + metadata from Gmail (on demand)  
-- `POST /suggestions/:id/confirm` — body: `{ application_id, gmail_thread_id }` or use suggestion token from sync response  
+- `POST /suggestions/:id/confirm` — body: `{ application_id, gmail_thread_id }` or use suggestion token from sync response
 
 Exact paths can vary; keep versioning and CORS limited to localhost in dev.
 
@@ -184,3 +190,4 @@ User can: add/edit applications; connect Gmail once; run sync; review suggestion
 - **Consistency:** Stack, scope, and data model align; no Claude in v1.
 - **Scope:** Single cohesive deliverable; future work listed separately.
 - **Ambiguity resolved:** Suggestions are not auto-persisted; confirmed links are the source of truth for “related mail.”
+
