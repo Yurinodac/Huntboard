@@ -1,15 +1,20 @@
-import { type CSSProperties, type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import ImportFromUrl from "../components/ImportFromUrl";
 import {
   APPLICATION_STATUSES,
   createApplication,
   getApplication,
   getApplicationThreads,
+  getResumes,
   patchApplication,
+  resumeFileUrl,
   type ApplicationBody,
   type ApplicationThread,
+  type ResumeVersion,
   type WorkArrangement,
 } from "../api/client";
+import { statusLabel } from "../statusLabels";
 
 type DetailTab = "details" | "mail";
 
@@ -20,6 +25,7 @@ type FormState = {
   status: (typeof APPLICATION_STATUSES)[number];
   posting_url: string;
   notes: string;
+  job_summary: string;
   location: string;
   work_arrangement: WorkArrangement;
   salary_min: string;
@@ -27,15 +33,17 @@ type FormState = {
   contact_name: string;
   contact_email: string;
   file_links_text: string;
+  resume_version_id: string;
 };
 
 const EMPTY_FORM: FormState = {
   company: "",
   title: "",
-  applied_date: "",
-  status: "interested",
+  applied_date: new Date().toISOString().slice(0, 10),
+  status: "applied",
   posting_url: "",
   notes: "",
+  job_summary: "",
   location: "",
   work_arrangement: "unknown",
   salary_min: "",
@@ -43,6 +51,7 @@ const EMPTY_FORM: FormState = {
   contact_name: "",
   contact_email: "",
   file_links_text: "",
+  resume_version_id: "",
 };
 
 const WORK_ARRANGEMENTS: WorkArrangement[] = ["unknown", "remote", "hybrid", "onsite"];
@@ -61,6 +70,7 @@ function toFormState(data: {
   status: (typeof APPLICATION_STATUSES)[number];
   posting_url?: string | null;
   notes?: string | null;
+  job_summary?: string | null;
   location?: string | null;
   work_arrangement?: WorkArrangement | null;
   salary_min?: number | null;
@@ -68,6 +78,7 @@ function toFormState(data: {
   contact_name?: string | null;
   contact_email?: string | null;
   file_links?: string[] | string | null;
+  resume_version_id?: string | null;
 }): FormState {
   const links = Array.isArray(data.file_links)
     ? data.file_links
@@ -78,9 +89,13 @@ function toFormState(data: {
     company: data.company ?? "",
     title: data.title ?? "",
     applied_date: data.applied_date ?? "",
-    status: data.status ?? "interested",
+    status:
+      String(data.status) === "interested"
+        ? "applied"
+        : ((data.status as (typeof APPLICATION_STATUSES)[number]) ?? "applied"),
     posting_url: data.posting_url ?? "",
     notes: data.notes ?? "",
+    job_summary: data.job_summary ?? "",
     location: data.location ?? "",
     work_arrangement: data.work_arrangement ?? "unknown",
     salary_min: data.salary_min == null ? "" : String(data.salary_min),
@@ -88,6 +103,7 @@ function toFormState(data: {
     contact_name: data.contact_name ?? "",
     contact_email: data.contact_email ?? "",
     file_links_text: links.join("\n"),
+    resume_version_id: data.resume_version_id ?? "",
   };
 }
 
@@ -100,6 +116,26 @@ function parseLinksJson(raw: string): string[] {
   }
 }
 
+function bodyToFormState(body: ApplicationBody): FormState {
+  return {
+    company: body.company ?? "",
+    title: body.title ?? "",
+    applied_date: body.applied_date ?? new Date().toISOString().slice(0, 10),
+    status: body.status ?? "applied",
+    posting_url: body.posting_url ?? "",
+    notes: body.notes ?? "",
+    job_summary: body.job_summary ?? "",
+    location: body.location ?? "",
+    work_arrangement: body.work_arrangement ?? "unknown",
+    salary_min: body.salary_min == null ? "" : String(body.salary_min),
+    salary_max: body.salary_max == null ? "" : String(body.salary_max),
+    contact_name: body.contact_name ?? "",
+    contact_email: body.contact_email ?? "",
+    file_links_text: (body.file_links ?? []).join("\n"),
+    resume_version_id: body.resume_version_id ?? "",
+  };
+}
+
 function toPayload(form: FormState): ApplicationBody {
   return {
     company: form.company.trim(),
@@ -108,6 +144,7 @@ function toPayload(form: FormState): ApplicationBody {
     status: form.status,
     posting_url: form.posting_url.trim() || undefined,
     notes: form.notes.trim() || undefined,
+    job_summary: form.job_summary.trim() || undefined,
     location: form.location.trim() || undefined,
     work_arrangement: form.work_arrangement,
     salary_min: form.salary_min.trim() ? Number(form.salary_min) : undefined,
@@ -115,6 +152,7 @@ function toPayload(form: FormState): ApplicationBody {
     contact_name: form.contact_name.trim() || undefined,
     contact_email: form.contact_email.trim() || undefined,
     file_links: normalizeLinks(form.file_links_text),
+    resume_version_id: form.resume_version_id.trim() || null,
   };
 }
 
@@ -122,7 +160,10 @@ export default function ApplicationDetail() {
   const { id = "new" } = useParams();
   const isNew = id === "new";
   const navigate = useNavigate();
+  const location = useLocation();
   const [tab, setTab] = useState<DetailTab>("details");
+  const [importNote, setImportNote] = useState<string | null>(null);
+  const [importWarnings, setImportWarnings] = useState<string[]>([]);
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -130,11 +171,25 @@ export default function ApplicationDetail() {
   const [mailLoading, setMailLoading] = useState(false);
   const [mailError, setMailError] = useState<string | null>(null);
   const [threads, setThreads] = useState<ApplicationThread[]>([]);
+  const [resumes, setResumes] = useState<ResumeVersion[]>([]);
+
+  useEffect(() => {
+    getResumes()
+      .then(setResumes)
+      .catch(() => setResumes([]));
+  }, []);
 
   useEffect(() => {
     if (isNew) {
       setLoading(false);
-      setForm(EMPTY_FORM);
+      const state = location.state as { draft?: ApplicationBody; importWarnings?: string[] } | null;
+      if (state?.draft) {
+        setForm(bodyToFormState(state.draft));
+        setImportNote("Imported from job link — review and save.");
+        setImportWarnings(state.importWarnings ?? []);
+      } else {
+        setForm(EMPTY_FORM);
+      }
       return;
     }
 
@@ -157,7 +212,7 @@ export default function ApplicationDetail() {
     return () => {
       alive = false;
     };
-  }, [id, isNew]);
+  }, [id, isNew, location.state]);
 
   useEffect(() => {
     if (tab !== "mail" || isNew) return;
@@ -188,11 +243,11 @@ export default function ApplicationDetail() {
     try {
       const payload = toPayload(form);
       if (isNew) {
-        const created = await createApplication(payload);
-        navigate(`/applications/${created.id}`);
+        await createApplication(payload);
       } else {
         await patchApplication(id, payload);
       }
+      navigate("/applications");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -201,40 +256,62 @@ export default function ApplicationDetail() {
   }
 
   if (loading) {
-    return <main style={mainStyle}>Loading application...</main>;
+    return <p>Loading application…</p>;
   }
 
   return (
-    <main style={mainStyle}>
-      <header style={{ marginBottom: 16 }}>
+    <>
+      <header className="page-header">
         <p style={{ margin: "0 0 8px 0" }}>
-          <Link to="/applications">Back to applications</Link>
+          <Link to="/applications">← Applications</Link>
         </p>
-        <h1 style={{ margin: 0 }}>{pageTitle}</h1>
+        <h1>{pageTitle}</h1>
       </header>
 
-      <nav aria-label="Application sections" style={{ marginBottom: 12, display: "flex", gap: 8 }}>
+      {isNew ? (
+        <ImportFromUrl
+          onImported={(preview, sources, warnings) => {
+            setForm(
+              bodyToFormState({
+                ...preview,
+                applied_date: preview.applied_date ?? new Date().toISOString().slice(0, 10),
+              }),
+            );
+            setImportNote(`Imported (${sources.join(", ")}) — review and save.`);
+            setImportWarnings(warnings);
+          }}
+        />
+      ) : null}
+
+      {importNote ? <div className="alert alert--success">{importNote}</div> : null}
+      {importWarnings.map((w) => (
+        <div key={w} className="alert alert--warn">
+          {w}
+        </div>
+      ))}
+
+      <nav className="tabs" aria-label="Application sections">
         <button
           type="button"
+          className={`tab${tab === "details" ? " tab--active" : ""}`}
           onClick={() => setTab("details")}
           aria-pressed={tab === "details"}
-          style={tabButtonStyle(tab === "details")}
         >
           Details
         </button>
         <button
           type="button"
+          className={`tab${tab === "mail" ? " tab--active" : ""}`}
           onClick={() => setTab("mail")}
           aria-pressed={tab === "mail"}
-          style={tabButtonStyle(tab === "mail")}
         >
           Mail
         </button>
       </nav>
 
       {tab === "details" ? (
-        <form onSubmit={onSubmit} style={formStyle}>
-          {error ? <p role="alert">{error}</p> : null}
+        <form onSubmit={onSubmit} className="card form-grid">
+          {error ? <div className="alert alert--error" role="alert">{error}</div> : null}
 
           <Field label="Company" required>
             <input
@@ -271,25 +348,62 @@ export default function ApplicationDetail() {
             >
               {APPLICATION_STATUSES.map((status) => (
                 <option key={status} value={status}>
-                  {status}
+                  {statusLabel(status)}
                 </option>
               ))}
             </select>
           </Field>
 
-          <Field label="Posting URL">
-            <input
-              type="url"
+          <Field label="Resume used">
+            <select
+              value={form.resume_version_id}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, resume_version_id: event.target.value }))}
+            >
+              <option value="">— None —</option>
+              {resumes.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.label} ({new Date(row.uploaded_at).toLocaleDateString()})
+                </option>
+              ))}
+            </select>
+            <p className="field-hint">
+              <Link to="/resumes">Upload resume versions</Link> to track which file you sent.
+              {form.resume_version_id ? (
+                <>
+                  {" "}
+                  <a href={resumeFileUrl(form.resume_version_id)} download>
+                    Download selected
+                  </a>
+                </>
+              ) : null}
+            </p>
+          </Field>
+
+          <Field label="Job posting link">
+            <PostingUrlField
+              isNew={isNew}
               value={form.posting_url}
-              onChange={(event) => setForm((prev) => ({ ...prev, posting_url: event.target.value }))}
+              onChange={(posting_url) => setForm((prev) => ({ ...prev, posting_url }))}
             />
           </Field>
 
-          <Field label="Notes">
+          <Field label="Job description summary">
             <textarea
-              rows={4}
+              rows={10}
+              value={form.job_summary}
+              onChange={(event) => setForm((prev) => ({ ...prev, job_summary: event.target.value }))}
+              placeholder="Imported from the posting, or paste the role description here…"
+            />
+            <p className="field-hint">Main duties, requirements, and context for this role.</p>
+          </Field>
+
+          <Field label="Your notes">
+            <textarea
+              rows={3}
               value={form.notes}
               onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))}
+              placeholder="Interview prep, referrals, salary thoughts…"
             />
           </Field>
 
@@ -357,14 +471,17 @@ export default function ApplicationDetail() {
             />
           </Field>
 
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <button type="submit" disabled={saving}>
-              {saving ? "Saving..." : "Save"}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+            <Link to="/applications" className="btn btn--secondary">
+              Cancel
+            </Link>
+            <button type="submit" className="btn btn--primary" disabled={saving}>
+              {saving ? "Saving…" : isNew ? "Add to pipeline" : "Save changes"}
             </button>
           </div>
         </form>
       ) : (
-        <section aria-live="polite">
+        <section className="card" aria-live="polite">
           {isNew ? (
             <p>Save this application first to view linked mail threads.</p>
           ) : (
@@ -405,7 +522,7 @@ export default function ApplicationDetail() {
           )}
         </section>
       )}
-    </main>
+    </>
   );
 }
 
@@ -419,35 +536,119 @@ function Field({
   required?: boolean;
 }) {
   return (
-    <label style={{ display: "grid", gap: 4 }}>
-      <span>
+    <div className="field">
+      <label>
         {label}
         {required ? " *" : ""}
-      </span>
+      </label>
       {children}
-    </label>
+    </div>
   );
 }
 
-const mainStyle: CSSProperties = {
-  padding: 16,
-  maxWidth: 900,
-  margin: "0 auto",
-};
+function normalizePostingHref(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) return "";
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
 
-const formStyle: CSSProperties = {
-  display: "grid",
-  gap: 12,
-  border: "1px solid #ddd",
-  borderRadius: 8,
-  padding: 12,
-};
+function displayPostingLabel(url: string): string {
+  try {
+    const { hostname, pathname } = new URL(normalizePostingHref(url));
+    const path = pathname.length > 48 ? `${pathname.slice(0, 45)}…` : pathname;
+    return `${hostname}${path === "/" ? "" : path}`;
+  } catch {
+    return url.trim();
+  }
+}
 
-function tabButtonStyle(active: boolean): CSSProperties {
-  return {
-    border: "1px solid #ccc",
-    borderRadius: 6,
-    padding: "8px 12px",
-    background: active ? "#e7f3ff" : "#fff",
-  };
+function PostingUrlField({
+  isNew,
+  value,
+  onChange,
+}: {
+  isNew: boolean;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+
+  useEffect(() => {
+    setEditing(false);
+  }, [isNew]);
+
+  const trimmed = value.trim();
+  const href = normalizePostingHref(trimmed);
+
+  if (isNew || editing) {
+    return (
+      <div className="posting-url-field">
+        <input
+          type="url"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder="https://…"
+          autoFocus={editing}
+        />
+        {!isNew && editing ? (
+          <button
+            type="button"
+            className="btn btn--secondary btn--sm"
+            onClick={() => setEditing(false)}
+          >
+            Done
+          </button>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (!trimmed) {
+    return (
+      <div className="posting-url-field posting-url-field--link">
+        <span className="posting-url-empty">No posting link</span>
+        <button
+          type="button"
+          className="icon-btn"
+          aria-label="Add job posting link"
+          title="Add link"
+          onClick={() => setEditing(true)}
+        >
+          <EditIcon />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="posting-url-field posting-url-field--link">
+      <a
+        className="posting-url-link"
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={trimmed}
+      >
+        {displayPostingLabel(trimmed)}
+      </a>
+      <button
+        type="button"
+        className="icon-btn"
+        aria-label="Edit job posting link"
+        title="Edit link"
+        onClick={() => setEditing(true)}
+      >
+        <EditIcon />
+      </button>
+    </div>
+  );
+}
+
+function EditIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </svg>
+  );
 }

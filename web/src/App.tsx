@@ -1,29 +1,22 @@
-import { Link, Route, Routes } from "react-router-dom";
+import { Route, Routes } from "react-router-dom";
+import Layout from "./components/Layout";
 import ApplicationDetail from "./pages/ApplicationDetail";
 import ApplicationsList from "./pages/ApplicationsList";
 import GmailPanel from "./pages/GmailPanel";
-
-function HomePage() {
-  return <h1>Job tracker</h1>;
-}
+import HomePage from "./pages/HomePage";
+import ResumesPage from "./pages/ResumesPage";
 
 export default function App() {
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", lineHeight: 1.4 }}>
-      <nav
-        aria-label="Main navigation"
-        style={{ borderBottom: "1px solid #ddd", padding: "12px 16px", marginBottom: 8 }}
-      >
-        <Link to="/">Home</Link> | <Link to="/applications">Applications</Link> |{" "}
-        <Link to="/gmail">Gmail</Link>
-      </nav>
-      <Routes>
+    <Routes>
+      <Route element={<Layout />}>
         <Route path="/" element={<HomePage />} />
         <Route path="/applications" element={<ApplicationsList />} />
         <Route path="/applications/new" element={<ApplicationDetail />} />
         <Route path="/applications/:id" element={<ApplicationDetail />} />
         <Route path="/gmail" element={<GmailPanel />} />
-      </Routes>
-    </div>
+        <Route path="/resumes" element={<ResumesPage />} />
+      </Route>
+    </Routes>
   );
 }

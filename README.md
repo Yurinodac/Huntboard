@@ -1,6 +1,13 @@
-# Job application tracker
+# Huntboard — Job application tracker
 
 Local-first tool to log job applications (SQLite), optionally connect **Gmail** (read-only), and review **suggested** links between threads and applications before you confirm them.
+
+**Auto-fill (v1.1):**
+
+- Paste a **job posting URL** on Applications or New application — company, title, and notes are imported when the page allows it. **LinkedIn** blocks server downloads; paste the job description instead (the URL is still saved).
+- On **Gmail → Suggestions**, use **Create application from email** to add a role from the message and link the thread in one step (no manual form).
+
+**AI assist (optional):** set `ANTHROPIC_API_KEY` in `.env`. When enabled, Huntboard sends job page text, email snippets, and Gmail thread metadata to Anthropic to refine company/title, **job summary**, and suggestion summaries. Heuristic parsing still runs first; AI augments when a key is present. The sidebar shows whether AI is on.
 
 ## Prerequisites
 

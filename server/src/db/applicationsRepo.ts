@@ -30,10 +30,10 @@ export function createApplicationRepo(db: Database.Database) {
       const file_links = JSON.stringify(row.file_links ?? []);
       db.prepare(
         `INSERT INTO applications (
-          id, company, title, applied_date, status, posting_url, notes, location,
+          id, company, title, applied_date, status, posting_url, notes, job_summary, location,
           work_arrangement, salary_min, salary_max, contact_name, contact_email,
-          file_links, created_at, updated_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          file_links, resume_version_id, created_at, updated_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       ).run(
         id,
         row.company,
@@ -42,6 +42,7 @@ export function createApplicationRepo(db: Database.Database) {
         row.status,
         row.posting_url || null,
         row.notes ?? null,
+        row.job_summary ?? null,
         row.location ?? null,
         row.work_arrangement,
         row.salary_min ?? null,
@@ -49,6 +50,7 @@ export function createApplicationRepo(db: Database.Database) {
         row.contact_name ?? null,
         row.contact_email || null,
         file_links,
+        row.resume_version_id ?? null,
         ts,
         ts,
       );
@@ -62,10 +64,10 @@ export function createApplicationRepo(db: Database.Database) {
       db.prepare(
         `UPDATE applications SET
           company=@company, title=@title, applied_date=@applied_date, status=@status,
-          posting_url=@posting_url, notes=@notes, location=@location,
+          posting_url=@posting_url, notes=@notes, job_summary=@job_summary, location=@location,
           work_arrangement=@work_arrangement, salary_min=@salary_min, salary_max=@salary_max,
           contact_name=@contact_name, contact_email=@contact_email, file_links=@file_links,
-          updated_at=@updated_at
+          resume_version_id=@resume_version_id, updated_at=@updated_at
         WHERE id=@id`,
       ).run({
         ...next,

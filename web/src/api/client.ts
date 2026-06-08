@@ -1,6 +1,6 @@
 export const APPLICATION_STATUSES = [
-  "interested",
   "applied",
+  "pre_assessment",
   "recruiter_screen",
   "interview",
   "offer",
@@ -21,6 +21,7 @@ export type Application = {
   status: ApplicationStatus;
   posting_url?: string | null;
   notes?: string | null;
+  job_summary?: string | null;
   location?: string | null;
   work_arrangement: WorkArrangement;
   salary_min?: number | null;
@@ -28,6 +29,7 @@ export type Application = {
   contact_name?: string | null;
   contact_email?: string | null;
   file_links: string[] | string;
+  resume_version_id?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -39,6 +41,7 @@ export type ApplicationBody = {
   status: ApplicationStatus;
   posting_url?: string;
   notes?: string;
+  job_summary?: string;
   location?: string;
   work_arrangement?: WorkArrangement;
   salary_min?: number;
@@ -46,6 +49,17 @@ export type ApplicationBody = {
   contact_name?: string;
   contact_email?: string;
   file_links?: string[];
+  resume_version_id?: string | null;
+};
+
+export type ResumeVersion = {
+  id: string;
+  label: string;
+  original_filename: string;
+  stored_filename: string;
+  mime_type: string | null;
+  uploaded_at: string;
+  notes: string | null;
 };
 
 export type ApplicationThread = {
@@ -56,6 +70,18 @@ export type ApplicationThread = {
   fromEmail?: string | null;
   placeholder?: boolean;
 };
+
+export class ApiRequestError extends Error {
+  readonly status: number;
+  readonly code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+    this.code = code;
+  }
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const hasBody = Boolean(init?.body);
@@ -68,7 +94,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status} ${response.statusText}`);
+    let detail = response.statusText;
+    let code: string | undefined;
+    try {
+      const body = (await response.json()) as { error?: string; code?: string };
+      if (body.error) detail = body.error;
+      code = body.code;
+    } catch {
+      /* non-JSON body */
+    }
+    throw new ApiRequestError(
+      detail || `Request failed: ${response.status}`,
+      response.status,
+      code,
+    );
   }
 
   if (response.status === 204) {
@@ -121,6 +160,14 @@ export type GmailStatus = {
   last_sync_at: string | null;
 };
 
+export type FieldUpdateSuggestion = {
+  field: string;
+  label: string;
+  current: string | null;
+  proposed: string;
+  reason: string;
+};
+
 export type GmailSuggestion = {
   application_id: string;
   gmail_thread_id: string;
@@ -129,11 +176,16 @@ export type GmailSuggestion = {
   snippet: string;
   score: number;
   reason_codes: string[];
+  ai_summary?: string;
+  propose_create?: boolean;
+  field_updates?: FieldUpdateSuggestion[];
 };
 
 export type GmailSyncResult = {
   suggestions: GmailSuggestion[];
   synced_at: string;
+  inbox_empty?: boolean;
+  ai_used?: boolean;
 };
 
 export function getGmailStatus() {
@@ -149,15 +201,98 @@ export function postGmailSync() {
   return request<GmailSyncResult>("/api/v1/gmail/sync", { method: "POST" });
 }
 
-export function confirmGmailSuggestion(application_id: string, gmail_thread_id: string) {
+export type ImportUrlPreview = {
+  preview: ApplicationBody & { posting_url?: string };
+  sources: string[];
+  warnings?: string[];
+  ai_used?: boolean;
+};
+
+export type AiStatus = {
+  enabled: boolean;
+  model: string | null;
+};
+
+export function getAiStatus() {
+  return request<AiStatus>("/api/v1/ai/status");
+}
+
+export function importApplicationFromUrl(url: string) {
+  return request<ImportUrlPreview>("/api/v1/applications/import-url", {
+    method: "POST",
+    body: JSON.stringify({ url }),
+  });
+}
+
+export function importApplicationFromPaste(text: string, url?: string) {
+  return request<ImportUrlPreview>("/api/v1/applications/import-paste", {
+    method: "POST",
+    body: JSON.stringify({ text, url: url?.trim() || undefined }),
+  });
+}
+
+export function createApplicationFromEmail(input: {
+  from: string;
+  subject: string;
+  snippet?: string;
+  gmail_thread_id?: string;
+}) {
+  return request<Application>("/api/v1/applications/from-email", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function confirmGmailSuggestion(
+  application_id: string,
+  gmail_thread_id: string,
+  options?: {
+    field_updates?: Partial<ApplicationBody>;
+    link_thread?: boolean;
+  },
+) {
   return request<{
-    id: string;
-    application_id: string;
-    gmail_thread_id: string;
-    confirmed_at: string;
-    created_at: string;
+    link: {
+      id: string;
+      application_id: string;
+      gmail_thread_id: string;
+      confirmed_at: string;
+      created_at: string;
+    } | null;
+    application_updated: boolean;
   }>("/api/v1/suggestions/confirm", {
     method: "POST",
-    body: JSON.stringify({ application_id, gmail_thread_id }),
+    body: JSON.stringify({
+      application_id,
+      gmail_thread_id,
+      field_updates: options?.field_updates,
+      link_thread: options?.link_thread ?? true,
+    }),
   });
+}
+
+export async function getResumes() {
+  const data = await request<{ resumes: ResumeVersion[] }>("/api/v1/resumes");
+  return data.resumes ?? [];
+}
+
+export function uploadResume(input: {
+  filename: string;
+  content_base64: string;
+  mime_type?: string;
+  label?: string;
+  notes?: string;
+}) {
+  return request<ResumeVersion>("/api/v1/resumes", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteResume(id: string) {
+  return request<void>(`/api/v1/resumes/${id}`, { method: "DELETE" });
+}
+
+export function resumeFileUrl(id: string) {
+  return `/api/v1/resumes/${id}/file`;
 }

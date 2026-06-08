@@ -13,13 +13,21 @@ import { openDatabase } from "../src/db/pool.js";
 import { registerApplicationsRoutes } from "../src/routes/applications.js";
 import { registerGmailSyncRoutes } from "../src/routes/gmailSync.js";
 
-function makeThreadDetail(from: string, subject: string, snippet: string) {
+function makeThreadDetail(
+  from: string,
+  subject: string,
+  snippet: string,
+  inInbox = true,
+) {
   return {
     data: {
       id: subject,
       snippet,
       messages: [
         {
+          internalDate: "2000000000000",
+          labelIds: inInbox ? ["INBOX", "UNREAD"] : ["CATEGORY_PROMOTIONS"],
+          snippet,
           payload: {
             headers: [
               { name: "From", value: from },
@@ -53,6 +61,7 @@ function makeFakeGmail(): gmail_v1.Gmail {
             "Newsletter <news@example.org>",
             "Weekly roundup",
             "Nothing about your role",
+            false,
           );
         },
       },
@@ -114,6 +123,8 @@ describe("gmail sync + link routes", () => {
     expect(res.body.suggestions[0].gmail_thread_id).toBe("t-match");
     expect(res.body.suggestions[0].application_id).toBe(row?.id);
     expect(res.body.suggestions[0].score).toBeGreaterThanOrEqual(25);
+    expect(Array.isArray(res.body.suggestions[0].field_updates)).toBe(true);
+    expect(res.body.suggestions[0].field_updates.length).toBeGreaterThan(0);
   });
 
   it("confirms links and returns conflict for duplicates", async () => {
@@ -133,12 +144,26 @@ describe("gmail sync + link routes", () => {
       gmail_thread_id: "t-1",
     });
     expect(first.status).toBe(201);
+    expect(first.body.link?.gmail_thread_id).toBe("t-1");
+
+    const withPatch = await request(app).post("/api/v1/suggestions/confirm").send({
+      application_id: row?.id,
+      gmail_thread_id: "t-2",
+      link_thread: false,
+      field_updates: { status: "interview", notes: "Phone screen scheduled" },
+    });
+    expect(withPatch.status).toBe(201);
+    expect(withPatch.body.application_updated).toBe(true);
+    const updated = apps.get(row!.id) as { status: string; notes: string };
+    expect(updated.status).toBe("interview");
+    expect(updated.notes).toContain("Phone screen");
 
     const second = await request(app).post("/api/v1/suggestions/confirm").send({
       application_id: row?.id,
       gmail_thread_id: "t-1",
     });
-    expect(second.status).toBe(409);
+    expect(second.status).toBe(201);
+    expect(second.body.link?.gmail_thread_id).toBe("t-1");
   });
 
   it("lists placeholder threads when tokens are missing", async () => {

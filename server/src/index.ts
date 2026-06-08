@@ -1,7 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import dotenv from "dotenv";
 import cors from "cors";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(__dirname, "../..");
+dotenv.config({ path: path.join(repoRoot, ".env") });
 import express from "express";
 import { DATABASE_PATH, DATA_DIR, PORT } from "./config.js";
 import { migrate } from "./db/migrate.js";
@@ -9,8 +14,8 @@ import { openDatabase } from "./db/pool.js";
 import { registerApplicationsRoutes } from "./routes/applications.js";
 import { registerGmailOAuthRoutes } from "./routes/gmailOAuth.js";
 import { registerGmailSyncRoutes } from "./routes/gmailSync.js";
+import { registerResumesRoutes } from "./routes/resumes.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const webDist = path.resolve(__dirname, "../../web/dist");
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -18,7 +23,8 @@ export const db = openDatabase(DATABASE_PATH);
 migrate(db);
 
 const app = express();
-app.use(express.json());
+// Resumes upload as base64 JSON (~4/3 file size); allow up to 8 MB files + overhead
+app.use(express.json({ limit: "12mb" }));
 app.use(
   cors({
     origin: [/http:\/\/localhost:\d+/, /http:\/\/127\.0\.0\.1:\d+/],
@@ -29,6 +35,7 @@ app.use(
 registerApplicationsRoutes(app, db);
 registerGmailOAuthRoutes(app, db);
 registerGmailSyncRoutes(app, db);
+registerResumesRoutes(app, db);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 

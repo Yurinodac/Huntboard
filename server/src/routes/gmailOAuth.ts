@@ -5,10 +5,18 @@ import {
   assertGoogleOAuthConfigured,
   FRONTEND_ORIGIN,
   googleOAuthEnv,
+  PORT,
 } from "../config.js";
 import { createOAuthRepo } from "../db/oauthRepo.js";
 
 const GMAIL_READONLY = "https://www.googleapis.com/auth/gmail.readonly";
+
+function gmailPanelUrl(query: string): string {
+  if (process.env.NODE_ENV === "production") {
+    return `http://127.0.0.1:${PORT}/gmail${query}`;
+  }
+  return `${FRONTEND_ORIGIN}/gmail${query}`;
+}
 
 function makeOAuth2() {
   assertGoogleOAuthConfigured();
@@ -36,7 +44,7 @@ export function registerGmailOAuthRoutes(app: Express, db: Database.Database) {
   app.get("/oauth/callback", async (req, res) => {
     const code = typeof req.query.code === "string" ? req.query.code : undefined;
     if (!code) {
-      res.status(400).send("missing ?code=");
+      res.redirect(gmailPanelUrl("?gmail=error&reason=missing_code"));
       return;
     }
     try {
@@ -49,9 +57,12 @@ export function registerGmailOAuthRoutes(app: Express, db: Database.Database) {
         scope: tokens.scope ?? null,
         token_type: tokens.token_type ?? null,
       });
-      res.redirect(`${FRONTEND_ORIGIN}/?gmail=connected`);
+      res.redirect(gmailPanelUrl("?gmail=connected"));
     } catch (err) {
-      res.status(500).send(err instanceof Error ? err.message : String(err));
+      const message = encodeURIComponent(
+        err instanceof Error ? err.message : String(err),
+      );
+      res.redirect(gmailPanelUrl(`?gmail=error&reason=${message}`));
     }
   });
 }
