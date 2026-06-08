@@ -31,4 +31,40 @@ describe("applications API", () => {
     expect(list.body.length).toBe(1);
     expect(list.body[0].company).toBe("Acme");
   });
+
+  it("deletes an application", async () => {
+    const app = makeApp();
+    const created = await request(app).post("/api/v1/applications").send({
+      company: "Acme",
+      title: "Engineer",
+      status: "applied",
+    });
+    const del = await request(app).delete(`/api/v1/applications/${created.body.id}`);
+    expect(del.status).toBe(204);
+    const list = await request(app).get("/api/v1/applications");
+    expect(list.body.length).toBe(0);
+  });
+
+  it("keeps list order by created_at when an older row is patched", async () => {
+    const app = makeApp();
+    const first = await request(app).post("/api/v1/applications").send({
+      company: "First",
+      title: "Role",
+      status: "applied",
+      applied_date: "2026-01-01",
+    });
+    const second = await request(app).post("/api/v1/applications").send({
+      company: "Second",
+      title: "Role",
+      status: "applied",
+      applied_date: "2026-01-01",
+    });
+    await request(app)
+      .patch(`/api/v1/applications/${first.body.id}`)
+      .send({ notes: "updated later" });
+
+    const list = await request(app).get("/api/v1/applications");
+    expect(list.body[0].company).toBe("Second");
+    expect(list.body[1].company).toBe("First");
+  });
 });

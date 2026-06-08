@@ -13,12 +13,12 @@ export function createApplicationRepo(db: Database.Database) {
       if (status) {
         return db
           .prepare(
-            `SELECT * FROM applications WHERE status = ? ORDER BY applied_date DESC, updated_at DESC`,
+            `SELECT * FROM applications WHERE status = ? ORDER BY applied_date DESC, created_at DESC`,
           )
           .all(status);
       }
       return db
-        .prepare(`SELECT * FROM applications ORDER BY applied_date DESC, updated_at DESC`)
+        .prepare(`SELECT * FROM applications ORDER BY applied_date DESC, created_at DESC`)
         .all();
     },
     get(id: string) {
@@ -60,7 +60,10 @@ export function createApplicationRepo(db: Database.Database) {
       const cur = this.get(id) as Record<string, unknown> | undefined;
       if (!cur) return undefined;
       const next = { ...cur, ...patch, file_links: patch.file_links ?? cur.file_links };
-      const updated = nowIso();
+      const patchKeys = Object.keys(patch);
+      const resumeOnly =
+        patchKeys.length > 0 && patchKeys.every((key) => key === "resume_version_id");
+      const updated = resumeOnly ? String(cur.updated_at) : nowIso();
       db.prepare(
         `UPDATE applications SET
           company=@company, title=@title, applied_date=@applied_date, status=@status,

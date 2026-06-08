@@ -1,9 +1,10 @@
-import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import ImportFromUrl from "../components/ImportFromUrl";
 import {
   APPLICATION_STATUSES,
   createApplication,
+  deleteApplication,
   getApplication,
   getApplicationThreads,
   getResumes,
@@ -172,6 +173,8 @@ export default function ApplicationDetail() {
   const [mailError, setMailError] = useState<string | null>(null);
   const [threads, setThreads] = useState<ApplicationThread[]>([]);
   const [resumes, setResumes] = useState<ResumeVersion[]>([]);
+  const [deleting, setDeleting] = useState(false);
+  const submitLock = useRef(false);
 
   useEffect(() => {
     getResumes()
@@ -238,6 +241,8 @@ export default function ApplicationDetail() {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitLock.current) return;
+    submitLock.current = true;
     setSaving(true);
     setError(null);
     try {
@@ -251,7 +256,30 @@ export default function ApplicationDetail() {
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Save failed");
     } finally {
+      submitLock.current = false;
       setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (isNew) return;
+    const label = [form.company, form.title].filter(Boolean).join(" — ") || "this application";
+    if (
+      !window.confirm(
+        `Delete ${label}? This cannot be undone. Linked Gmail threads will be unlinked.`,
+      )
+    ) {
+      return;
+    }
+    setDeleting(true);
+    setError(null);
+    try {
+      await deleteApplication(id);
+      navigate("/applications");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -261,11 +289,32 @@ export default function ApplicationDetail() {
 
   return (
     <>
-      <header className="page-header">
-        <p style={{ margin: "0 0 8px 0" }}>
-          <Link to="/applications">← Applications</Link>
-        </p>
-        <h1>{pageTitle}</h1>
+      <header
+        className="page-header"
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          flexWrap: "wrap",
+          gap: 12,
+        }}
+      >
+        <div>
+          <p style={{ margin: "0 0 8px 0" }}>
+            <Link to="/applications">← Applications</Link>
+          </p>
+          <h1 style={{ margin: 0 }}>{pageTitle}</h1>
+        </div>
+        {!isNew ? (
+          <button
+            type="button"
+            className="btn btn--coral"
+            disabled={deleting || saving}
+            onClick={handleDelete}
+          >
+            {deleting ? "Deleting…" : "Delete application"}
+          </button>
+        ) : null}
       </header>
 
       {isNew ? (
@@ -372,7 +421,11 @@ export default function ApplicationDetail() {
               {form.resume_version_id ? (
                 <>
                   {" "}
-                  <a href={resumeFileUrl(form.resume_version_id)} download>
+                  <a
+                    href={resumeFileUrl(form.resume_version_id)}
+                    download
+                    onClick={(event) => event.stopPropagation()}
+                  >
                     Download selected
                   </a>
                 </>
