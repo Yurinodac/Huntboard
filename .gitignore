@@ -9,3 +9,7 @@ data/
 *.log
 .DS_Store
 Thumbs.db
+
+# Local-only publish workflow (keep off public GitHub)
+docs/PRE-PUSH-CHECKLIST.md
+docs/GITHUB-SETUP.md
