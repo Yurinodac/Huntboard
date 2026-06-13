@@ -29,7 +29,12 @@ export type EmailThreadInput = {
   from: string;
   subject: string;
   snippet: string;
+  bodyText?: string;
 };
+
+function emailAnalysisText(subject: string, snippet: string, bodyText?: string): string {
+  return `${subject} ${snippet} ${bodyText ?? ""}`.replace(/\s+/g, " ").trim();
+}
 
 const STATUS_ORDER: ApplicationStatusValue[] = [
   "applied",
@@ -54,12 +59,13 @@ function statusRank(status: ApplicationStatusValue): number {
 export function inferStatusFromEmail(
   subject: string,
   snippet: string,
+  bodyText?: string,
 ): ApplicationStatusValue | null {
-  const text = `${subject} ${snippet}`.toLowerCase();
+  const text = emailAnalysisText(subject, snippet, bodyText).toLowerCase();
   if (/\b(offer letter|we are pleased to offer|extend an offer)\b/.test(text)) {
     return "offer";
   }
-  if (isRejectionEmail(subject, snippet)) {
+  if (isRejectionEmail(subject, snippet, bodyText)) {
     return "rejected";
   }
   if (
@@ -122,7 +128,11 @@ export function buildFieldUpdateSuggestions(
   syncedAt?: string,
 ): FieldUpdateSuggestion[] {
   const extracted = extractApplicationFromEmail(email);
-  const inferredStatus = inferStatusFromEmail(email.subject, email.snippet);
+  const inferredStatus = inferStatusFromEmail(
+    email.subject,
+    email.snippet,
+    email.bodyText,
+  );
   const suggestions: FieldUpdateSuggestion[] = [];
 
   if (inferredStatus && inferredStatus !== app.status) {
@@ -186,7 +196,7 @@ export function buildFieldUpdateSuggestions(
     });
   }
 
-  const emailText = `${email.subject}\n${email.snippet}`;
+  const emailText = emailAnalysisText(email.subject, email.snippet, email.bodyText);
   const salary = extractSalaryRange(emailText);
   if (salary) {
     const salaryReason = salary.salary_disclosure

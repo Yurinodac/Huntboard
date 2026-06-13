@@ -50,6 +50,30 @@ describe("buildFieldUpdateSuggestions", () => {
     expect(rows.some((r) => r.field === "notes")).toBe(true);
     expect(rows.some((r) => r.field === "contact_email")).toBe(true);
   });
+
+  it("suggests rejected status from body text when snippet is short", () => {
+    const rows = buildFieldUpdateSuggestions(
+      {
+        id: "a1",
+        company: "Acme",
+        title: "Engineer",
+        status: "interview",
+        notes: null,
+        contact_email: null,
+        contact_name: null,
+      },
+      {
+        from: "Recruiting <jobs@acme.com>",
+        subject: "Your application",
+        snippet: "Thank you for your interest",
+        bodyText:
+          "Thank you for your interest. Unfortunately we have decided to move forward with other candidates.",
+      },
+    );
+    expect(rows.some((r) => r.field === "status" && r.proposed.toLowerCase() === "rejected")).toBe(
+      true,
+    );
+  });
 });
 
 describe("patchFromFieldUpdates", () => {

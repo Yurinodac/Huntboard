@@ -17,7 +17,31 @@ import {
   type GmailSuggestion,
   type GmailStatus,
 } from "../api/client";
-import { statusFromProposedLabel } from "../statusLabels";
+import { statusFromProposedLabel, STATUS_LABELS } from "../statusLabels";
+
+function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+function resolveApplicationId(
+  s: GmailSuggestion,
+  reassignFor: Record<string, string>,
+  applications: Application[],
+): string {
+  const preferred = reassignFor[s.gmail_thread_id] ?? s.application_id;
+  if (preferred && applications.some((a) => a.id === preferred)) return preferred;
+  return applications[0]?.id ?? "";
+}
+
+function initReassignFor(suggestions: GmailSuggestion[], applications: Application[]): Record<string, string> {
+  const next: Record<string, string> = {};
+  for (const s of suggestions) {
+    if (s.propose_create) continue;
+    const id = resolveApplicationId(s, {}, applications);
+    if (id) next[s.gmail_thread_id] = id;
+  }
+  return next;
+}
 
 function defaultSelectedFields(updates?: FieldUpdateSuggestion[]): Set<string> {
   return new Set(updates?.map((u) => u.field) ?? []);
@@ -37,17 +61,24 @@ function buildFieldPatch(
         const status = statusFromProposedLabel(row.proposed);
         if ((APPLICATION_STATUSES as readonly string[]).includes(status)) {
           patch.status = status as ApplicationStatus;
+        } else {
+          const fromLabel = Object.entries(STATUS_LABELS).find(
+            ([, label]) => label.toLowerCase() === row.proposed.trim().toLowerCase(),
+          );
+          if (fromLabel) patch.status = fromLabel[0] as ApplicationStatus;
         }
         break;
       }
       case "applied_date":
-        patch.applied_date = row.proposed;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(row.proposed.trim())) {
+          patch.applied_date = row.proposed.trim();
+        }
         break;
       case "contact_name":
         patch.contact_name = row.proposed;
         break;
       case "contact_email":
-        patch.contact_email = row.proposed;
+        if (isValidEmail(row.proposed)) patch.contact_email = row.proposed.trim();
         break;
       case "location":
         patch.location = row.proposed;
@@ -80,6 +111,7 @@ export default function GmailPanel() {
   const [reassignFor, setReassignFor] = useState<Record<string, string>>({});
   const [selectedFields, setSelectedFields] = useState<Record<string, Set<string>>>({});
   const [loading, setLoading] = useState(false);
+  const [confirmingThreadId, setConfirmingThreadId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
 
@@ -173,8 +205,11 @@ export default function GmailPanel() {
     setLoading(true);
     try {
       const result = await postGmailSync();
+      const apps = await getApplications();
+      setApplications(apps);
       setSuggestions(result.suggestions);
       initSelectedFields(result.suggestions);
+      setReassignFor(initReassignFor(result.suggestions, apps));
       if (result.inbox_empty) {
         setBanner("Your Gmail inbox is empty — nothing to match right now.");
       } else if (result.ai_used) {
@@ -191,7 +226,7 @@ export default function GmailPanel() {
   }
 
   function effectiveApplicationId(s: GmailSuggestion): string {
-    return reassignFor[s.gmail_thread_id] ?? s.application_id;
+    return resolveApplicationId(s, reassignFor, applications);
   }
 
   function selectedFor(s: GmailSuggestion): Set<string> {
@@ -220,11 +255,19 @@ export default function GmailPanel() {
     s: GmailSuggestion,
     options?: { linkOnly?: boolean; updatesOnly?: boolean },
   ) {
+    if (confirmingThreadId) return;
+
     setError(null);
-    setLoading(true);
+    setConfirmingThreadId(s.gmail_thread_id);
     try {
       const appId = effectiveApplicationId(s);
-      if (!appId || !appById.has(appId)) {
+      if (!appId) {
+        setError("Add an application first, then link this inbox thread to it.");
+        return;
+      }
+
+      const apps = applications.length ? applications : await getApplications();
+      if (!apps.some((a) => a.id === appId)) {
         setError("Choose an application to link this inbox thread to.");
         return;
       }
@@ -247,7 +290,7 @@ export default function GmailPanel() {
         setApplications(await getApplications());
       }
       await refreshStatus();
-      const app = appById.get(appId);
+      const app = apps.find((a) => a.id === appId);
       setBanner(
         hasUpdates
           ? `Updates applied and thread linked${app ? ` to ${app.company}` : ""}.`
@@ -260,9 +303,13 @@ export default function GmailPanel() {
         await refreshStatus();
         return;
       }
-      setError(e instanceof Error ? e.message : String(e));
+      if (e instanceof ApiRequestError) {
+        setError(e.message || `Request failed (${e.status})`);
+      } else {
+        setError(e instanceof Error ? e.message : String(e));
+      }
     } finally {
-      setLoading(false);
+      setConfirmingThreadId(null);
     }
   }
 
@@ -350,6 +397,7 @@ export default function GmailPanel() {
             const hasFieldUpdates = (s.field_updates?.length ?? 0) > 0;
             const selected = selectedFor(s);
             const canLink = Boolean(appId && app && !s.propose_create);
+            const cardBusy = loading || confirmingThreadId === s.gmail_thread_id;
 
             return (
               <li key={s.gmail_thread_id} className="card suggestion-card">
@@ -388,7 +436,7 @@ export default function GmailPanel() {
                   Link to application
                   <select
                     style={{ marginTop: 6 }}
-                    value={reassignFor[s.gmail_thread_id] ?? s.application_id}
+                    value={appId}
                     onChange={(ev) =>
                       setReassignFor((prev) => ({
                         ...prev,
@@ -409,7 +457,7 @@ export default function GmailPanel() {
                       <button
                         type="button"
                         className="btn btn--primary"
-                        disabled={loading}
+                        disabled={cardBusy || !!confirmingThreadId}
                         onClick={() => handleConfirm(s)}
                       >
                         {selected.size > 0 ? "Apply updates & link" : "Link thread"}
@@ -418,7 +466,7 @@ export default function GmailPanel() {
                         <button
                           type="button"
                           className="btn btn--secondary"
-                          disabled={loading}
+                          disabled={cardBusy || !!confirmingThreadId}
                           onClick={() => handleConfirm(s, { updatesOnly: true })}
                         >
                           Apply updates only
@@ -429,7 +477,7 @@ export default function GmailPanel() {
                     <button
                       type="button"
                       className="btn btn--primary"
-                      disabled={loading}
+                      disabled={cardBusy || !!confirmingThreadId}
                       onClick={() => handleConfirm(s)}
                     >
                       Confirm link
@@ -438,7 +486,7 @@ export default function GmailPanel() {
                   <button
                     type="button"
                     className="btn btn--coral"
-                    disabled={loading}
+                    disabled={cardBusy || !!confirmingThreadId}
                     onClick={() => handleCreateFromEmail(s)}
                   >
                     Create application from email

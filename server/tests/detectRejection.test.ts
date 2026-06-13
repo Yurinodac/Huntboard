@@ -62,6 +62,33 @@ describe("isRejectionEmail", () => {
       ),
     ).toBe(true);
   });
+
+  it("detects other candidates in application context", () => {
+    expect(
+      isRejectionEmail(
+        "Your application to Acme",
+        "Short preview only.",
+        "We have decided to move forward with other candidates.",
+      ),
+    ).toBe(true);
+    expect(
+      isRejectionEmail(
+        "Application update",
+        "Thank you for applying.",
+        "Unfortunately, we will be moving forward with other candidates for this role.",
+      ),
+    ).toBe(true);
+  });
+
+  it("uses body text when snippet is truncated", () => {
+    expect(
+      isRejectionEmail(
+        "Update on your application",
+        "Thank you for your interest in",
+        "Thank you for your interest in the role. Unfortunately, we won't be proceeding with your application.",
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("inferStatusFromEmail rejections", () => {

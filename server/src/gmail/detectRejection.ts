@@ -2,20 +2,23 @@
  * Heuristic rejection detection for recruiting email subject + body.
  */
 
+const APPLICATION_CONTEXT =
+  /\b(application|candidacy|candidate|applied|position|role|opening|hire|hiring|recruiting|job search)\b/i;
+
 const REJECTION_PATTERNS: RegExp[] = [
-  // User-reported & close variants
-  /won['']?t be proceeding(?: with your application)?/i,
+  /won[''']?t be proceeding(?: with your application)?/i,
   /will not be proceeding(?: with your application)?/i,
   /not be proceeding(?: with your application)?/i,
   /(?:have |has )?decided to move forward with other candidates/i,
   /moving forward with other candidates/i,
   /move forward with other candidates/i,
+  /(?:proceed(?:ing)?|moving) with other candidates/i,
   /other candidates at this time/i,
   /pursuing other candidates/i,
   /selected other candidates/i,
   /chosen other candidates/i,
+  /(?:with|to) other candidates/i,
 
-  // Common ATS / recruiter wording
   /not moving forward(?: with your application| with you| at this time)?/i,
   /decided not to move forward/i,
   /will not be moving forward/i,
@@ -51,10 +54,11 @@ const REJECTION_PATTERNS: RegExp[] = [
   /concluded our search/i,
   /completed our hiring process/i,
 
-  /unfortunately.{0,120}(?:not moving forward|other candidates|not proceed|not selected|not advance|won['']?t be proceeding|move forward with other)/i,
-  /unfortunately we (?:won['']?t|will not|cannot|are unable to)/i,
+  /unfortunately.{0,160}(?:not moving forward|other candidates|not proceed|not selected|not advance|won[''']?t be proceeding|move forward with other|cannot offer|will not)/i,
+  /unfortunately we (?:won[''']?t|will not|cannot|are unable to|have decided)/i,
 
-  /update on your (?:application|candidacy).{0,200}(?:not moving forward|other candidates|not proceed|regret)/i,
+  /update on your (?:application|candidacy).{0,240}(?:not moving forward|other candidates|not proceed|regret|unfortunately)/i,
+  /(?:application|position|role) update.{0,200}(?:not moving forward|other candidates|unfortunately|regret)/i,
 ];
 
 /** "Unfortunately" used for rescheduling / logistics — not a rejection */
@@ -66,11 +70,35 @@ const UNFORTUNATELY_NON_REJECTION = new RegExp(
   "i",
 );
 
-export function isRejectionEmail(subject: string, snippet: string): boolean {
-  const text = `${subject} ${snippet}`.replace(/\s+/g, " ").trim();
+function normalizeEmailText(subject: string, snippet: string, bodyText?: string): string {
+  return [subject, snippet, bodyText ?? ""]
+    .join(" ")
+    .replace(/\u2019/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function hasOtherCandidatesRejection(text: string): boolean {
+  if (!/\bother candidates?\b/i.test(text)) return false;
+  if (/(?:move|moving|proceed|proceeding|forward|pursu(?:e|ing)|select(?:ed|ing)).{0,50}other candidates?/i.test(text)) {
+    return true;
+  }
+  return APPLICATION_CONTEXT.test(text);
+}
+
+export function isRejectionEmail(
+  subject: string,
+  snippet: string,
+  bodyText?: string,
+): boolean {
+  const text = normalizeEmailText(subject, snippet, bodyText);
   if (!text) return false;
 
   if (/\bunfortunately\b/i.test(text) && !UNFORTUNATELY_NON_REJECTION.test(text)) {
+    return true;
+  }
+
+  if (hasOtherCandidatesRejection(text)) {
     return true;
   }
 

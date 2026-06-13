@@ -11,7 +11,7 @@ import {
   type ApplicationSnapshot,
   type FieldUpdateSuggestion,
 } from "../gmail/suggestFieldUpdates.js";
-import { ApplicationPatch } from "../types/application.js";
+import { parseConfirmFieldUpdates } from "../gmail/parseConfirmPatch.js";
 import { createOAuthRepo, type StoredTokens } from "../db/oauthRepo.js";
 import { createSyncStateRepo } from "../db/syncStateRepo.js";
 import { fetchInboxThreads } from "../gmail/service.js";
@@ -135,6 +135,7 @@ export function registerGmailSyncRoutes(
         subject: string;
         from: string;
         snippet: string;
+        bodyText?: string;
         score: number;
         reason_codes: string[];
         ai_summary?: string;
@@ -167,7 +168,12 @@ export function registerGmailSyncRoutes(
         const snap = appSnapshot(row.application_id);
         if (!snap) return;
 
-        const email = { from: row.from, subject: row.subject, snippet: row.snippet };
+        const email = {
+          from: row.from,
+          subject: row.subject,
+          snippet: row.snippet,
+          bodyText: row.bodyText,
+        };
         let updates = buildFieldUpdateSuggestions(snap, email, syncedAt);
         const batchAi = aiUpdatesByThread.get(row.gmail_thread_id);
         if (batchAi) {
@@ -226,6 +232,7 @@ export function registerGmailSyncRoutes(
           subject: thread.subject,
           from: thread.fromDisplay || thread.fromEmail,
           snippet: thread.snippet,
+          bodyText: thread.bodyText,
           score: best.score,
           reason_codes: best.reason_codes,
         });
@@ -269,6 +276,7 @@ export function registerGmailSyncRoutes(
                     subject: thread.subject,
                     from: thread.fromDisplay || thread.fromEmail,
                     snippet: thread.snippet,
+                    bodyText: thread.bodyText,
                     score: Math.round(row.confidence * 100),
                     reason_codes: ["ai_match"],
                     ai_summary: row.summary,
@@ -320,13 +328,10 @@ export function registerGmailSyncRoutes(
     const gmail_thread_id =
       typeof req.body?.gmail_thread_id === "string" ? req.body.gmail_thread_id : "";
     const link_thread = req.body?.link_thread !== false;
-    const parsedPatch = ApplicationPatch.safeParse(req.body?.field_updates ?? {});
+    const patch = parseConfirmFieldUpdates(req.body?.field_updates);
 
     if (!application_id || !gmail_thread_id) {
       return res.status(400).json({ error: "application_id and gmail_thread_id are required" });
-    }
-    if (!parsedPatch.success) {
-      return res.status(400).json(parsedPatch.error.flatten());
     }
 
     try {
@@ -334,14 +339,7 @@ export function registerGmailSyncRoutes(
         return res.status(404).json({ error: "application_not_found" });
       }
 
-      const patch = parsedPatch.data;
       const hasPatch = Object.keys(patch).length > 0;
-      if (hasPatch) {
-        const updated = appRepo.update(application_id, patch);
-        if (!updated) {
-          return res.status(404).json({ error: "application_not_found" });
-        }
-      }
 
       let link = null;
       if (link_thread) {
@@ -369,9 +367,18 @@ export function registerGmailSyncRoutes(
         }
       }
 
+      let application_updated = false;
+      if (hasPatch) {
+        const updated = appRepo.update(application_id, patch);
+        if (!updated) {
+          return res.status(404).json({ error: "application_not_found" });
+        }
+        application_updated = true;
+      }
+
       return res.status(201).json({
         link,
-        application_updated: hasPatch,
+        application_updated,
       });
     } catch (err) {
       const status = typeof (err as { status?: unknown }).status === "number"

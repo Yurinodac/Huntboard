@@ -50,6 +50,38 @@ function pickInboxMessage(
   )[0];
 }
 
+function decodeBase64Url(data: string): string {
+  const normalized = data.replace(/-/g, "+").replace(/_/g, "/");
+  return Buffer.from(normalized, "base64").toString("utf8");
+}
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractBodyText(part: gmail_v1.Schema$MessagePart | undefined): string {
+  if (!part) return "";
+  const mime = (part.mimeType ?? "").toLowerCase();
+
+  if ((mime === "text/plain" || mime === "text/html") && part.body?.data) {
+    const raw = decodeBase64Url(part.body.data);
+    return mime === "text/html" ? stripHtml(raw) : raw.trim();
+  }
+
+  if (part.parts?.length) {
+    const plain = part.parts.find((p) => (p.mimeType ?? "").toLowerCase() === "text/plain");
+    if (plain) return extractBodyText(plain);
+    return part.parts.map((p) => extractBodyText(p)).filter(Boolean).join("\n");
+  }
+
+  return "";
+}
+
 function threadToMeta(threadId: string, detail: gmail_v1.Schema$Thread): ThreadMeta | null {
   const messages = detail.messages ?? [];
   const message = pickInboxMessage(messages);
@@ -59,6 +91,7 @@ function threadToMeta(threadId: string, detail: gmail_v1.Schema$Thread): ThreadM
   const fromHeader = readHeader(headers, "From");
   const subject = readHeader(headers, "Subject");
   const parsedFrom = parseFromHeader(fromHeader);
+  const bodyText = extractBodyText(message.payload).slice(0, 6000);
 
   return {
     threadId,
@@ -66,6 +99,7 @@ function threadToMeta(threadId: string, detail: gmail_v1.Schema$Thread): ThreadM
     fromEmail: parsedFrom.fromEmail,
     subject,
     snippet: message.snippet ?? detail.snippet ?? "",
+    bodyText: bodyText || undefined,
   };
 }
 
@@ -94,8 +128,7 @@ export async function fetchInboxThreads(
     const detail = await gmail.users.threads.get({
       userId: "me",
       id: threadId,
-      format: "metadata",
-      metadataHeaders: ["From", "Subject"],
+      format: "full",
     });
 
     const meta = threadToMeta(threadId, detail.data);

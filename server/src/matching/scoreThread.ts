@@ -20,6 +20,8 @@ export type ThreadMeta = {
   fromEmail: string;
   subject: string;
   snippet: string;
+  /** Plain-text body excerpt for status detection (snippet alone is often truncated). */
+  bodyText?: string;
 };
 
 export type ScoreThreadResult = {

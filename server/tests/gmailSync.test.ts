@@ -166,6 +166,34 @@ describe("gmail sync + link routes", () => {
     expect(second.body.link?.gmail_thread_id).toBe("t-1");
   });
 
+  it("links thread when field_updates mix valid and invalid fields", async () => {
+    const { app, db } = makeApp();
+    const apps = createApplicationRepo(db);
+    const row = apps.insert({
+      company: "Acme",
+      title: "Engineer",
+      status: "applied",
+      work_arrangement: "unknown",
+      file_links: [],
+    });
+
+    const res = await request(app).post("/api/v1/suggestions/confirm").send({
+      application_id: row?.id,
+      gmail_thread_id: "t-bad-email",
+      field_updates: {
+        status: "rejected",
+        contact_email: "not-an-email",
+        notes: "Rejected via Gmail",
+      },
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.link?.gmail_thread_id).toBe("t-bad-email");
+    expect(res.body.application_updated).toBe(true);
+    const updated = apps.get(row!.id) as { status: string; notes: string };
+    expect(updated.status).toBe("rejected");
+    expect(updated.notes).toContain("Rejected via Gmail");
+  });
+
   it("lists placeholder threads when tokens are missing", async () => {
     const { app, db } = makeApp();
     const apps = createApplicationRepo(db);
