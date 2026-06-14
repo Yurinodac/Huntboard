@@ -1,41 +1,46 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { getBucket, matchesBucket } from "../applicationBuckets";
+import { getBucket } from "../applicationBuckets";
 import {
-  ACTIVE_STATUSES,
-  matchesView,
-  PAST_STATUSES,
-  type ApplicationsView,
-} from "../applicationViews";
+  describeApplicationListFilters,
+  hasApplicationListFilters,
+  matchesApplicationListFilters,
+  parseApplicationListFilters,
+  statusOptionsForView,
+  type ApplicationsListView,
+} from "../applicationFilters";
+import { matchesView, type ApplicationsView } from "../applicationViews";
 import ImportFromUrl from "../components/ImportFromUrl";
 import StatusBadge from "../components/StatusBadge";
 import { statusLabel } from "../statusLabels";
-import { getApplications, type Application, type ApplicationBody } from "../api/client";
+import { getApplications, getResumes, type Application, type ApplicationBody } from "../api/client";
 
-function parseView(param: string | null): ApplicationsView {
-  return param === "past" ? "past" : "active";
+function listViewLabel(view: ApplicationsListView): string {
+  if (view === "past") return "past";
+  if (view === "all") return "";
+  return "active";
 }
 
 export default function ApplicationsList() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const view = parseView(searchParams.get("view"));
-  const bucketId = searchParams.get("bucket");
+  const filters = useMemo(
+    () => parseApplicationListFilters(searchParams),
+    [searchParams],
+  );
+  const { view, bucketId, status: statusParam, resume: resumeParam } = filters;
   const bucket = getBucket(bucketId);
 
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [companySearch, setCompanySearch] = useState("");
   const [rows, setRows] = useState<Application[]>([]);
+  const [resumeLabels, setResumeLabels] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (bucket) setStatusFilter("all");
-  }, [bucketId, bucket]);
-
-  useEffect(() => {
-    setStatusFilter("all");
-  }, [view]);
+    setStatusFilter(statusParam ?? "all");
+  }, [statusParam]);
 
   useEffect(() => {
     let alive = true;
@@ -56,7 +61,27 @@ export default function ApplicationsList() {
     };
   }, []);
 
-  const viewRows = useMemo(() => rows.filter((app) => matchesView(app.status, view)), [rows, view]);
+  useEffect(() => {
+    let alive = true;
+    getResumes()
+      .then((resumes) => {
+        if (!alive) return;
+        const map: Record<string, string> = {};
+        for (const row of resumes) map[row.id] = row.label;
+        setResumeLabels(map);
+      })
+      .catch(() => {
+        /* resume labels are optional for the filter banner */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const viewRows = useMemo(() => {
+    if (view === "all") return rows;
+    return rows.filter((app) => matchesView(app.status, view));
+  }, [rows, view]);
 
   const activeCount = useMemo(
     () => rows.filter((app) => matchesView(app.status, "active")).length,
@@ -67,15 +92,20 @@ export default function ApplicationsList() {
     [rows],
   );
 
-  const statusOptions = useMemo(() => {
-    const base = view === "active" ? ACTIVE_STATUSES : PAST_STATUSES;
-    return ["all", ...base];
-  }, [view]);
+  const statusOptions = useMemo(() => statusOptionsForView(view), [view]);
+
+  const filterDescription = useMemo(() => {
+    const resumeLabel =
+      resumeParam && resumeParam !== "none" ? resumeLabels[resumeParam] : undefined;
+    return describeApplicationListFilters(filters, resumeLabel);
+  }, [filters, resumeParam, resumeLabels]);
+
+  const showFilterBanner = hasApplicationListFilters(filters);
 
   const filteredRows = useMemo(() => {
     const q = companySearch.trim().toLowerCase();
     return viewRows.filter((app) => {
-      if (bucket && !matchesBucket(app.status, bucket)) return false;
+      if (!matchesApplicationListFilters(app, filters)) return false;
       if (statusFilter !== "all" && app.status !== statusFilter) return false;
       if (!q) return true;
       return (
@@ -83,7 +113,7 @@ export default function ApplicationsList() {
         app.title.toLowerCase().includes(q)
       );
     });
-  }, [viewRows, companySearch, bucket, statusFilter]);
+  }, [viewRows, companySearch, filters, statusFilter]);
 
   function setView(next: ApplicationsView) {
     setSearchParams((prev) => {
@@ -91,6 +121,9 @@ export default function ApplicationsList() {
       if (next === "active") params.delete("view");
       else params.set("view", "past");
       params.delete("bucket");
+      params.delete("status");
+      params.delete("source");
+      params.delete("resume");
       return params;
     });
   }
@@ -99,10 +132,14 @@ export default function ApplicationsList() {
     navigate("/applications/new", { state: { draft: preview, importWarnings: warnings } });
   }
 
-  function clearBucket() {
+  function clearFilters() {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       next.delete("bucket");
+      next.delete("status");
+      next.delete("source");
+      next.delete("resume");
+      next.delete("view");
       return next;
     });
   }
@@ -157,13 +194,13 @@ export default function ApplicationsList() {
         </button>
       </nav>
 
-      {bucket && view === "active" ? (
+      {showFilterBanner ? (
         <div className="filter-banner">
           <span>
-            Showing: <strong>{bucket.label}</strong>
+            Showing: <strong>{filterDescription}</strong>
           </span>
-          <button type="button" className="btn btn--ghost btn--sm" onClick={clearBucket}>
-            Show all active
+          <button type="button" className="btn btn--ghost btn--sm" onClick={clearFilters}>
+            Clear filters
           </button>
         </div>
       ) : null}
@@ -203,14 +240,16 @@ export default function ApplicationsList() {
           <div className="card empty-state">
             <p>
               {companySearch.trim()
-                ? `No ${view === "past" ? "past" : "active"} applications match "${companySearch.trim()}".`
-                : view === "past"
-                  ? "No past applications yet. When you mark a role as rejected, withdrawn, or archived, it will appear here."
-                  : bucket
-                    ? `No applications in "${bucket.label}".`
-                    : "No active applications yet. Paste a job link above or add one manually."}
+                ? `No applications match "${companySearch.trim()}".`
+                : showFilterBanner
+                  ? `No applications match "${filterDescription}".`
+                  : view === "past"
+                    ? "No past applications yet. When you mark a role as rejected, withdrawn, or archived, it will appear here."
+                    : view === "all"
+                      ? "No applications yet. Paste a job link above or add one manually."
+                      : "No active applications yet. Paste a job link above or add one manually."}
             </p>
-            {view === "active" && !companySearch.trim() && !bucket ? (
+            {view === "active" && !companySearch.trim() && !showFilterBanner ? (
               <Link to="/applications/new" className="btn btn--primary" style={{ marginTop: 12 }}>
                 Add manually
               </Link>
@@ -219,7 +258,8 @@ export default function ApplicationsList() {
         ) : (
           <div className="table-wrap">
             <p style={{ margin: "0 0 10px", fontSize: "0.9rem", color: "var(--ink-muted)" }}>
-              {filteredRows.length} {view === "past" ? "past" : "active"} application
+              {filteredRows.length}
+              {listViewLabel(view) ? ` ${listViewLabel(view)}` : ""} application
               {filteredRows.length === 1 ? "" : "s"}
             </p>
             <table className="data-table">

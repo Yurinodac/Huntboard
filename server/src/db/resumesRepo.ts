@@ -59,6 +59,15 @@ export function createResumesRepo(db: Database.Database) {
       );
       return this.get(id)!;
     },
+    updateLabel(id: string, label: string): ResumeVersionRow | undefined {
+      const trimmed = label.trim();
+      if (!trimmed) return undefined;
+      const result = db
+        .prepare(`UPDATE resume_versions SET label = ? WHERE id = ?`)
+        .run(trimmed, id);
+      if (result.changes === 0) return undefined;
+      return this.get(id);
+    },
     delete(id: string): boolean {
       const result = db.prepare(`DELETE FROM resume_versions WHERE id = ?`).run(id);
       return result.changes > 0;

@@ -5,6 +5,7 @@ import { getAiStatus } from "../api/client";
 const links = [
   { to: "/", label: "Dashboard", end: true },
   { to: "/applications", label: "Applications" },
+  { to: "/analytics", label: "Analytics" },
   { to: "/gmail", label: "Gmail" },
   { to: "/resumes", label: "Resumes" },
 ];

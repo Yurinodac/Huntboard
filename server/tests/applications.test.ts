@@ -27,6 +27,7 @@ describe("applications API", () => {
       status: "applied",
     });
     expect(c.status).toBe(201);
+    expect(c.body.source).toBe("manual");
     const list = await request(app).get("/api/v1/applications");
     expect(list.body.length).toBe(1);
     expect(list.body[0].company).toBe("Acme");

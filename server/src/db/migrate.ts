@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import type Database from "better-sqlite3";
 
 export function migrate(db: Database.Database): void {
@@ -56,6 +57,32 @@ export function migrate(db: Database.Database): void {
   if (!cols.some((c) => c.name === "resume_version_id")) {
     db.exec(`ALTER TABLE applications ADD COLUMN resume_version_id TEXT`);
   }
+  if (!cols.some((c) => c.name === "source")) {
+    db.exec(`ALTER TABLE applications ADD COLUMN source TEXT NOT NULL DEFAULT 'unknown'`);
+  }
+  if (!cols.some((c) => c.name === "first_interview_at")) {
+    db.exec(`ALTER TABLE applications ADD COLUMN first_interview_at TEXT`);
+  }
+  if (!cols.some((c) => c.name === "offer_at")) {
+    db.exec(`ALTER TABLE applications ADD COLUMN offer_at TEXT`);
+  }
+  if (!cols.some((c) => c.name === "rejected_at")) {
+    db.exec(`ALTER TABLE applications ADD COLUMN rejected_at TEXT`);
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS application_status_history (
+      id TEXT PRIMARY KEY NOT NULL,
+      application_id TEXT NOT NULL,
+      from_status TEXT,
+      to_status TEXT NOT NULL,
+      changed_at TEXT NOT NULL,
+      FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_status_history_app ON application_status_history(application_id);
+  `);
+
+  backfillStatusHistory(db);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS resume_versions (
@@ -70,4 +97,30 @@ export function migrate(db: Database.Database): void {
   `);
 
   db.prepare(`UPDATE applications SET status = 'applied' WHERE status = 'interested'`).run();
+}
+
+function backfillStatusHistory(db: Database.Database): void {
+  const missing = db
+    .prepare(
+      `SELECT a.id, a.status, a.created_at
+       FROM applications a
+       WHERE NOT EXISTS (
+         SELECT 1 FROM application_status_history h WHERE h.application_id = a.id
+       )`,
+    )
+    .all() as Array<{ id: string; status: string; created_at: string }>;
+
+  if (missing.length === 0) return;
+
+  const insert = db.prepare(
+    `INSERT INTO application_status_history (id, application_id, from_status, to_status, changed_at)
+     VALUES (?, ?, NULL, ?, ?)`,
+  );
+
+  const runMany = db.transaction((rows: typeof missing) => {
+    for (const row of rows) {
+      insert.run(crypto.randomUUID(), row.id, row.status, row.created_at);
+    }
+  });
+  runMany(missing);
 }

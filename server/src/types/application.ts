@@ -17,6 +17,19 @@ export const WorkArrangement = z.enum(["remote", "hybrid", "onsite", "unknown"])
 
 export type WorkArrangementValue = z.infer<typeof WorkArrangement>;
 
+/** Auto-set on create from posting URL or route; not user-editable via PATCH. */
+export const ApplicationSource = z.enum([
+  "linkedin",
+  "job_board",
+  "company_site",
+  "paste",
+  "email",
+  "manual",
+  "unknown",
+]);
+
+export type ApplicationSourceValue = z.infer<typeof ApplicationSource>;
+
 export const ApplicationCreate = z.object({
   company: z.string().min(1),
   title: z.string().min(1),
@@ -39,6 +52,18 @@ export const ApplicationPatch = ApplicationCreate.partial();
 
 export type ApplicationRecord = z.infer<typeof ApplicationCreate> & {
   id: string;
+  source: ApplicationSourceValue;
+  first_interview_at: string | null;
+  offer_at: string | null;
+  rejected_at: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type StatusHistoryRecord = {
+  id: string;
+  application_id: string;
+  from_status: ApplicationStatusValue | null;
+  to_status: ApplicationStatusValue;
+  changed_at: string;
 };

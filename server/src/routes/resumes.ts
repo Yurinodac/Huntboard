@@ -18,6 +18,10 @@ const ResumeCreate = z.object({
   content_base64: z.string().min(1),
 });
 
+const ResumePatch = z.object({
+  label: z.string().min(1),
+});
+
 function safeFilename(name: string): string {
   const base = path.basename(name).replace(/[^\w.\-() ]+/g, "_").slice(0, 120);
   return base || "resume.pdf";
@@ -83,6 +87,15 @@ export function registerResumesRoutes(app: Express, db: Database.Database) {
       `attachment; filename="${row.original_filename.replace(/"/g, "")}"`,
     );
     res.sendFile(filePath);
+  });
+
+  app.patch("/api/v1/resumes/:id", (req, res) => {
+    const parsed = ResumePatch.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json(parsed.error.flatten());
+
+    const row = repo.updateLabel(req.params.id, parsed.data.label);
+    if (!row) return res.status(404).json({ error: "not_found" });
+    res.json(row);
   });
 
   app.delete("/api/v1/resumes/:id", (req, res) => {

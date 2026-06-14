@@ -70,6 +70,7 @@ if (Test-Path '.env.example') {
 $patterns = @('sk-ant-', 'ghp_', 'gho_', 'AIzaSy', 'BEGIN RSA PRIVATE KEY', 'BEGIN OPENSSH PRIVATE KEY')
 $hits = @()
 foreach ($file in $tracked) {
+    if ($file -eq 'scripts/pre-push-check.ps1') { continue }
     if ($file -match '\.(png|jpg|jpeg|gif|webp|ico|pdf|db|sqlite)$') { continue }
     $content = Get-Content $file -Raw -ErrorAction SilentlyContinue
     if (-not $content) { continue }

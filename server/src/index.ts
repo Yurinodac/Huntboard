@@ -12,6 +12,7 @@ import { DATABASE_PATH, DATA_DIR, PORT } from "./config.js";
 import { migrate } from "./db/migrate.js";
 import { openDatabase } from "./db/pool.js";
 import { registerApplicationsRoutes } from "./routes/applications.js";
+import { registerAnalyticsRoutes } from "./routes/analytics.js";
 import { registerGmailOAuthRoutes } from "./routes/gmailOAuth.js";
 import { registerGmailSyncRoutes } from "./routes/gmailSync.js";
 import { registerResumesRoutes } from "./routes/resumes.js";
@@ -31,7 +32,8 @@ app.use(
     credentials: true,
   }),
 );
-
+//adds api routes for applications, gmail, gmail sync, and resumes
+registerAnalyticsRoutes(app, db);
 registerApplicationsRoutes(app, db);
 registerGmailOAuthRoutes(app, db);
 registerGmailSyncRoutes(app, db);

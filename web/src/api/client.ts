@@ -13,12 +13,22 @@ export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
 
 export type WorkArrangement = "remote" | "hybrid" | "onsite" | "unknown";
 
+export type ApplicationSource =
+  | "linkedin"
+  | "job_board"
+  | "company_site"
+  | "paste"
+  | "email"
+  | "manual"
+  | "unknown";
+
 export type Application = {
   id: string;
   company: string;
   title: string;
   applied_date?: string | null;
   status: ApplicationStatus;
+  source?: ApplicationSource;
   posting_url?: string | null;
   notes?: string | null;
   job_summary?: string | null;
@@ -30,6 +40,9 @@ export type Application = {
   contact_email?: string | null;
   file_links: string[] | string;
   resume_version_id?: string | null;
+  first_interview_at?: string | null;
+  offer_at?: string | null;
+  rejected_at?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -202,10 +215,44 @@ export function postGmailSync() {
 }
 
 export type ImportUrlPreview = {
-  preview: ApplicationBody & { posting_url?: string };
+  preview: ApplicationBody & { posting_url?: string; source?: ApplicationSource };
   sources: string[];
   warnings?: string[];
   ai_used?: boolean;
+};
+
+export type ResumeAnalyticsRow = {
+  resume_version_id: string | null;
+  label: string;
+  total: number;
+  positive_progress: number;
+  interview: number;
+  offer: number;
+  rejected: number;
+};
+
+export type AnalyticsSummary = {
+  total: number;
+  active_count: number;
+  past_count: number;
+  by_status: Record<string, number>;
+  by_source: Record<string, number>;
+  by_resume: ResumeAnalyticsRow[];
+  funnel: {
+    total: number;
+    positive_progress: number;
+    interview: number;
+    offer: number;
+    rejected: number;
+  };
+};
+
+export type StatusHistoryEntry = {
+  id: string;
+  application_id: string;
+  from_status: ApplicationStatus | null;
+  to_status: ApplicationStatus;
+  changed_at: string;
 };
 
 export type AiStatus = {
@@ -215,6 +262,19 @@ export type AiStatus = {
 
 export function getAiStatus() {
   return request<AiStatus>("/api/v1/ai/status");
+}
+
+export function getAnalyticsSummary() {
+  return request<AnalyticsSummary>("/api/v1/analytics/summary");
+}
+
+export function getApplicationStatusHistory(id: string) {
+  return request<{ history: StatusHistoryEntry[] }>(`/api/v1/applications/${id}/history`);
+}
+
+/** Opens CSV download in browser (same origin as API). */
+export function applicationsExportCsvUrl() {
+  return "/api/v1/applications/export.csv";
 }
 
 export function importApplicationFromUrl(url: string) {
@@ -291,6 +351,13 @@ export function uploadResume(input: {
 
 export function deleteResume(id: string) {
   return request<void>(`/api/v1/resumes/${id}`, { method: "DELETE" });
+}
+
+export function patchResumeLabel(id: string, label: string) {
+  return request<ResumeVersion>(`/api/v1/resumes/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ label }),
+  });
 }
 
 export function resumeFileUrl(id: string) {

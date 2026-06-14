@@ -66,6 +66,9 @@ export default function HomePage() {
           <Link to="/applications?view=past" className="btn btn--ghost">
             Past applications
           </Link>
+          <Link to="/analytics" className="btn btn--ghost">
+            Analytics &amp; export
+          </Link>
           <Link to="/gmail" className="btn btn--ghost">
             Gmail inbox
           </Link>

@@ -4,6 +4,7 @@ import {
   ApiRequestError,
   deleteResume,
   getResumes,
+  patchResumeLabel,
   resumeFileUrl,
   uploadResume,
   type ResumeVersion,
@@ -35,6 +36,9 @@ export default function ResumesPage() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editLabel, setEditLabel] = useState("");
+  const [savingLabel, setSavingLabel] = useState(false);
 
   async function refresh() {
     setResumes(await getResumes());
@@ -106,6 +110,41 @@ export default function ResumesPage() {
     }
   }
 
+  function startEditLabel(row: ResumeVersion) {
+    setEditingId(row.id);
+    setEditLabel(row.label);
+    setError(null);
+  }
+
+  function cancelEditLabel() {
+    setEditingId(null);
+    setEditLabel("");
+  }
+
+  async function saveEditLabel(row: ResumeVersion) {
+    const trimmed = editLabel.trim();
+    if (!trimmed) {
+      setError("Label cannot be empty.");
+      return;
+    }
+    if (trimmed === row.label) {
+      cancelEditLabel();
+      return;
+    }
+    setSavingLabel(true);
+    setError(null);
+    try {
+      await patchResumeLabel(row.id, trimmed);
+      await refresh();
+      cancelEditLabel();
+      setBanner("Resume label updated.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingLabel(false);
+    }
+  }
+
   return (
     <>
       <header className="page-header">
@@ -164,9 +203,50 @@ export default function ResumesPage() {
         <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 12 }}>
           {resumes.map((row) => (
             <li key={row.id} className="card">
-              <p style={{ margin: "0 0 4px", fontSize: "1.05rem" }}>
-                <strong>{row.label}</strong>
-              </p>
+              {editingId === row.id ? (
+                <div style={{ marginBottom: 10 }}>
+                  <label style={{ display: "block", fontSize: "0.9rem", marginBottom: 6 }}>
+                    Label
+                    <input
+                      type="text"
+                      value={editLabel}
+                      onChange={(e) => setEditLabel(e.target.value)}
+                      autoFocus
+                      disabled={savingLabel}
+                      style={{ marginTop: 6, width: "100%" }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void saveEditLabel(row);
+                        }
+                        if (e.key === "Escape") cancelEditLabel();
+                      }}
+                    />
+                  </label>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      className="btn btn--primary"
+                      disabled={savingLabel || !editLabel.trim()}
+                      onClick={() => void saveEditLabel(row)}
+                    >
+                      {savingLabel ? "Saving…" : "Save label"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--ghost"
+                      disabled={savingLabel}
+                      onClick={cancelEditLabel}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <p style={{ margin: "0 0 4px", fontSize: "1.05rem" }}>
+                  <strong>{row.label}</strong>
+                </p>
+              )}
               <p style={{ margin: "0 0 8px", color: "var(--ink-muted)", fontSize: "0.9rem" }}>
                 Uploaded {new Date(row.uploaded_at).toLocaleString()} · {row.original_filename}
               </p>
@@ -177,6 +257,11 @@ export default function ResumesPage() {
                 <a className="btn btn--secondary" href={resumeFileUrl(row.id)} download>
                   Download
                 </a>
+                {editingId !== row.id ? (
+                  <button type="button" className="btn btn--ghost" onClick={() => startEditLabel(row)}>
+                    Rename
+                  </button>
+                ) : null}
                 <button type="button" className="btn btn--ghost" onClick={() => handleDelete(row)}>
                   Delete
                 </button>

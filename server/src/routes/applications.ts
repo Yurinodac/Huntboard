@@ -13,7 +13,8 @@ import {
   type JobPageExtract,
 } from "../import/parseJobPage.js";
 import { CLAUDE_MODEL, isClaudeEnabled } from "../config.js";
-import { ApplicationCreate, ApplicationPatch } from "../types/application.js";
+import { ApplicationCreate, ApplicationPatch, type ApplicationSourceValue } from "../types/application.js";
+import { detectSourceFromPostingUrl } from "../import/detectSource.js";
 
 const ImportUrlBody = z.object({ url: z.string().url() });
 
@@ -21,6 +22,14 @@ const ImportPasteBody = z.object({
   text: z.string().min(40),
   url: z.string().url().optional(),
 });
+
+function sourceForCreate(
+  postingUrl: string | null | undefined,
+  override?: ApplicationSourceValue,
+): ApplicationSourceValue {
+  if (override) return override;
+  return detectSourceFromPostingUrl(postingUrl);
+}
 
 async function buildJobImportPreview(
   url: string,
@@ -42,6 +51,7 @@ async function buildJobImportPreview(
     salary_max: extracted.salary_max,
     status: "applied" as const,
     file_links: [] as string[],
+    source: detectSourceFromPostingUrl(extracted.posting_url || url),
   };
 
   if (isClaudeEnabled()) {
@@ -195,7 +205,7 @@ export function registerApplicationsRoutes(app: Express, db: Database.Database) 
       return res.status(400).json(createPayload.error.flatten());
     }
 
-    const row = repo.insert(createPayload.data) as { id: string };
+    const row = repo.insert(createPayload.data, sourceForCreate(undefined, "email")) as { id: string };
     if (parsed.data.gmail_thread_id) {
       try {
         linksRepo.insert(row.id, parsed.data.gmail_thread_id);
@@ -209,7 +219,14 @@ export function registerApplicationsRoutes(app: Express, db: Database.Database) 
   app.post("/api/v1/applications", (req, res) => {
     const parsed = ApplicationCreate.safeParse(req.body);
     if (!parsed.success) return res.status(400).json(parsed.error.flatten());
-    res.status(201).json(repo.insert(parsed.data));
+    const source = sourceForCreate(parsed.data.posting_url);
+    res.status(201).json(repo.insert(parsed.data, source));
+  });
+
+  app.get("/api/v1/applications/:id/history", (req, res) => {
+    const row = repo.get(req.params.id);
+    if (!row) return res.status(404).json({ error: "not found" });
+    res.json({ history: repo.listStatusHistory(req.params.id) });
   });
 
   app.get("/api/v1/applications/:id", (req, res) => {
