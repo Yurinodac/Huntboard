@@ -60,7 +60,7 @@ describe("analytics", () => {
     expect(row.rejected_at).toBeNull();
   });
 
-  it("counts positive progression separately from rejected", () => {
+  it("counts current funnel separately from historical conversion", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jt-analytics-"));
     const db = openDatabase(path.join(dir, "x.db"));
     migrate(db);
@@ -84,13 +84,16 @@ describe("analytics", () => {
 
     const summary = buildAnalyticsSummary(db);
     expect(summary.total).toBe(5);
+    expect(summary.funnel.active).toBe(4);
     expect(summary.funnel.positive_progress).toBe(2);
     expect(summary.funnel.interview).toBe(1);
     expect(summary.funnel.offer).toBe(1);
     expect(summary.funnel.rejected).toBe(1);
+    expect(summary.conversion.ever_positive_progress).toBe(2);
+    expect(summary.conversion.ever_interview).toBe(1);
   });
 
-  it("groups funnel metrics by resume version", () => {
+  it("counts historical resume milestones after rejection", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jt-analytics-"));
     const db = openDatabase(path.join(dir, "x.db"));
     migrate(db);
@@ -102,51 +105,73 @@ describe("analytics", () => {
       original_filename: "a.pdf",
       stored_filename: "a.pdf",
     });
-    const v2 = resumeRepo.insert({
-      label: "Resume B",
-      original_filename: "b.pdf",
-      stored_filename: "b.pdf",
-    });
 
-    appRepo.insert(
-      {
-        company: "Co",
-        title: "T",
-        status: "interview",
-        work_arrangement: "unknown",
-        file_links: [],
-        resume_version_id: v1.id,
-      },
-    );
-    appRepo.insert(
-      {
-        company: "Co",
-        title: "T",
-        status: "applied",
-        work_arrangement: "unknown",
-        file_links: [],
-        resume_version_id: v2.id,
-      },
-    );
-    appRepo.insert(
-      {
-        company: "Co",
-        title: "T",
-        status: "rejected",
-        work_arrangement: "unknown",
-        file_links: [],
-      },
-    );
+    const created = appRepo.insert({
+      company: "Co",
+      title: "T",
+      status: "applied",
+      work_arrangement: "unknown",
+      file_links: [],
+      resume_version_id: v1.id,
+    }) as { id: string };
+
+    appRepo.update(created.id, { status: "interview" });
+    appRepo.update(created.id, { status: "rejected" });
 
     const summary = buildAnalyticsSummary(db);
-    expect(summary.by_resume).toHaveLength(3);
     const rowA = summary.by_resume.find((r) => r.label === "Resume A");
-    expect(rowA?.positive_progress).toBe(1);
-    expect(rowA?.interview).toBe(1);
-    expect(summary.by_resume.find((r) => r.label === "No resume attached")?.rejected).toBe(1);
+    expect(rowA?.ever_interview).toBe(1);
+    expect(rowA?.ever_rejected).toBe(1);
+    expect(rowA?.rate_interview).toBe(100);
+    expect(summary.funnel.interview).toBe(0);
+    expect(summary.conversion.ever_interview).toBe(1);
   });
 
-  it("exports CSV and returns summary", async () => {
+  it("groups resume metrics with no-resume bucket", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jt-analytics-"));
+    const db = openDatabase(path.join(dir, "x.db"));
+    migrate(db);
+    const appRepo = createApplicationRepo(db);
+    const resumeRepo = createResumesRepo(db);
+
+    const v1 = resumeRepo.insert({
+      label: "Resume A",
+      original_filename: "a.pdf",
+      stored_filename: "a.pdf",
+    });
+
+    appRepo.insert({
+      company: "Co",
+      title: "T",
+      status: "interview",
+      work_arrangement: "unknown",
+      file_links: [],
+      resume_version_id: v1.id,
+    });
+    appRepo.insert({
+      company: "Co",
+      title: "T",
+      status: "applied",
+      work_arrangement: "unknown",
+      file_links: [],
+    });
+    appRepo.insert({
+      company: "Co",
+      title: "T",
+      status: "rejected",
+      work_arrangement: "unknown",
+      file_links: [],
+    });
+
+    const summary = buildAnalyticsSummary(db);
+    expect(summary.by_resume).toHaveLength(2);
+    const rowA = summary.by_resume.find((r) => r.label === "Resume A");
+    expect(rowA?.ever_positive_progress).toBe(1);
+    expect(rowA?.ever_interview).toBe(1);
+    expect(summary.by_resume.find((r) => r.label === "No resume attached")?.ever_rejected).toBe(1);
+  });
+
+  it("exports CSV and returns summary with conversion stats", async () => {
     const { app } = makeApp();
     await request(app).post("/api/v1/applications").send({
       company: "Stripe",
@@ -161,7 +186,11 @@ describe("analytics", () => {
     expect(summary.body.by_source.linkedin).toBe(1);
     expect(summary.body.funnel.rejected).toBe(1);
     expect(summary.body.funnel.positive_progress).toBe(0);
-    expect(summary.body.funnel).not.toHaveProperty("progressed");
+    expect(summary.body.conversion.ever_rejected).toBe(1);
+    expect(summary.body.conversion).toHaveProperty("rate_interview");
+
+    const list = await request(app).get("/api/v1/applications");
+    expect(list.body[0].statuses_ever_reached).toContain("rejected");
 
     const csv = await request(app).get("/api/v1/applications/export.csv");
     expect(csv.status).toBe(200);

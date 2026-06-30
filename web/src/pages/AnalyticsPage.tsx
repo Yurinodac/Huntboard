@@ -6,13 +6,16 @@ import {
   type AnalyticsSummary,
 } from "../api/client";
 import { analyticsDrilldown } from "../applicationFilters";
-import { statusLabel } from "../statusLabels";
 import { sourceLabel } from "../sourceLabels";
 
-/** Percent of all applications (not active-only). */
 function pctOfAll(part: number, total: number): string {
   if (total === 0) return "—";
   return `${Math.round((part / total) * 100)}%`;
+}
+
+function pctRate(value: number | null): string {
+  if (value == null) return "—";
+  return `${value}%`;
 }
 
 function DrilldownLink({
@@ -41,11 +44,6 @@ export default function AnalyticsPage() {
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
 
-  const statusRows = useMemo(() => {
-    if (!summary) return [];
-    return Object.entries(summary.by_status).sort((a, b) => b[1] - a[1]);
-  }, [summary]);
-
   const sourceRows = useMemo(() => {
     if (!summary) return [];
     return Object.entries(summary.by_source).sort((a, b) => b[1] - a[1]);
@@ -58,10 +56,10 @@ export default function AnalyticsPage() {
       <header className="page-header">
         <h1>Analytics</h1>
         <p>
-          Pipeline stats from your saved applications. Percentages are of{" "}
-          <strong>all applications</strong>, not just the active pipeline. Click a number to see
-          those applications. Status history and key dates update automatically when you save or
-          apply Gmail suggestions.
+          Pipeline stats from your saved applications. The funnel shows where applications are{" "}
+          <strong>right now</strong>; resume and conversion sections use{" "}
+          <strong>status history</strong> so past progress still counts after a rejection or status
+          change.
         </p>
       </header>
 
@@ -76,27 +74,27 @@ export default function AnalyticsPage() {
               <strong>{summary.total}</strong>
               <span>Total applications</span>
             </Link>
-            <Link
-              to={analyticsDrilldown.positiveProgress()}
-              className="stat-card stat-card--link"
-            >
-              <strong>{summary.funnel.positive_progress}</strong>
+            <Link to={analyticsDrilldown.active()} className="stat-card stat-card--link">
+              <strong>{summary.funnel.active}</strong>
+              <span>Active pipeline ({pctOfAll(summary.funnel.active, total)})</span>
+            </Link>
+            <Link to={analyticsDrilldown.everInterview()} className="stat-card stat-card--link">
+              <strong>{summary.conversion.ever_interview}</strong>
               <span>
-                Pre-assessment, screen, or interview ({pctOfAll(summary.funnel.positive_progress, total)})
+                Ever reached interview ({pctRate(summary.conversion.rate_interview)} of all)
               </span>
             </Link>
-            <Link to={analyticsDrilldown.interview()} className="stat-card stat-card--link">
-              <strong>{summary.funnel.interview}</strong>
-              <span>Interview ({pctOfAll(summary.funnel.interview, total)})</span>
-            </Link>
-            <Link to={analyticsDrilldown.offer()} className="stat-card stat-card--link">
-              <strong>{summary.funnel.offer}</strong>
-              <span>Offers ({pctOfAll(summary.funnel.offer, total)})</span>
+            <Link to={analyticsDrilldown.everOffer()} className="stat-card stat-card--link">
+              <strong>{summary.conversion.ever_offer}</strong>
+              <span>Ever got offer ({pctRate(summary.conversion.rate_offer)} of all)</span>
             </Link>
           </div>
 
           <div className="card" style={{ marginBottom: 20 }}>
-            <h2 style={{ margin: "0 0 12px", fontSize: "1.15rem" }}>Funnel</h2>
+            <h2 style={{ margin: "0 0 12px", fontSize: "1.15rem" }}>Funnel (current status)</h2>
+            <p style={{ margin: "0 0 12px", fontSize: "0.9rem", color: "var(--ink-muted)" }}>
+              Snapshot of where applications sit today — not historical highs.
+            </p>
             <ul style={{ margin: 0, paddingLeft: 20, lineHeight: 1.7 }}>
               <li>
                 <DrilldownLink to={analyticsDrilldown.total()}>
@@ -105,29 +103,35 @@ export default function AnalyticsPage() {
                 total logged
               </li>
               <li>
+                <DrilldownLink to={analyticsDrilldown.active()}>
+                  <strong>{summary.funnel.active}</strong>
+                </DrilldownLink>{" "}
+                active in pipeline ({pctOfAll(summary.funnel.active, total)} of all)
+              </li>
+              <li>
                 <DrilldownLink to={analyticsDrilldown.positiveProgress()}>
                   <strong>{summary.funnel.positive_progress}</strong>
                 </DrilldownLink>{" "}
-                reached pre-assessment, recruiter screen, or interview (
-                {pctOfAll(summary.funnel.positive_progress, total)} of all applications)
+                currently at pre-assessment, screen, or interview (
+                {pctOfAll(summary.funnel.positive_progress, total)} of all)
               </li>
               <li>
                 <DrilldownLink to={analyticsDrilldown.interview()}>
                   <strong>{summary.funnel.interview}</strong>
                 </DrilldownLink>{" "}
-                at interview stage ({pctOfAll(summary.funnel.interview, total)} of all applications)
+                currently at interview ({pctOfAll(summary.funnel.interview, total)} of all)
               </li>
               <li>
                 <DrilldownLink to={analyticsDrilldown.offer()}>
                   <strong>{summary.funnel.offer}</strong>
                 </DrilldownLink>{" "}
-                offers ({pctOfAll(summary.funnel.offer, total)} of all applications)
+                currently at offer ({pctOfAll(summary.funnel.offer, total)} of all)
               </li>
               <li>
                 <DrilldownLink to={analyticsDrilldown.rejected()}>
                   <strong>{summary.funnel.rejected}</strong>
                 </DrilldownLink>{" "}
-                rejected ({pctOfAll(summary.funnel.rejected, total)} of all applications)
+                currently rejected ({pctOfAll(summary.funnel.rejected, total)} of all)
               </li>
             </ul>
           </div>
@@ -136,9 +140,9 @@ export default function AnalyticsPage() {
             <div className="card" style={{ marginBottom: 20 }}>
               <h2 style={{ margin: "0 0 8px", fontSize: "1.15rem" }}>By resume version</h2>
               <p style={{ margin: "0 0 12px", fontSize: "0.9rem", color: "var(--ink-muted)" }}>
-                Compare resume versions. Percentages are share of{" "}
-                <strong>all {total} applications</strong> (same denominator as the funnel). Click
-                a count to see those applications.
+                Historical performance per resume — counts include applications that{" "}
+                <strong>ever reached</strong> each stage, even if they later moved to rejected or
+                another status. Interview % and offer % are of that resume&apos;s uses.
               </p>
               <div className="table-wrap">
                 <table className="data-table">
@@ -146,10 +150,12 @@ export default function AnalyticsPage() {
                     <tr>
                       <th>Resume</th>
                       <th>Uses</th>
-                      <th>Pre-assess / screen / interview</th>
-                      <th>Interview</th>
-                      <th>Offer</th>
-                      <th>Rejected</th>
+                      <th>Ever pre-assess / screen / interview</th>
+                      <th>Ever interview</th>
+                      <th>Interview rate</th>
+                      <th>Ever offer</th>
+                      <th>Offer rate</th>
+                      <th>Ever rejected</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -169,44 +175,40 @@ export default function AnalyticsPage() {
                           <DrilldownLink
                             to={analyticsDrilldown.byResume(
                               row.resume_version_id,
-                              "positive_progress",
+                              "ever_positive_progress",
                             )}
                           >
-                            {row.positive_progress}
-                          </DrilldownLink>{" "}
-                          <span style={{ color: "var(--ink-muted)" }}>
-                            ({pctOfAll(row.positive_progress, total)})
-                          </span>
+                            {row.ever_positive_progress}
+                          </DrilldownLink>
                         </td>
                         <td>
                           <DrilldownLink
-                            to={analyticsDrilldown.byResume(row.resume_version_id, "interview")}
+                            to={analyticsDrilldown.byResume(
+                              row.resume_version_id,
+                              "ever_interview",
+                            )}
                           >
-                            {row.interview}
-                          </DrilldownLink>{" "}
-                          <span style={{ color: "var(--ink-muted)" }}>
-                            ({pctOfAll(row.interview, total)})
-                          </span>
+                            {row.ever_interview}
+                          </DrilldownLink>
                         </td>
+                        <td>{pctRate(row.rate_interview)}</td>
                         <td>
                           <DrilldownLink
-                            to={analyticsDrilldown.byResume(row.resume_version_id, "offer")}
+                            to={analyticsDrilldown.byResume(row.resume_version_id, "ever_offer")}
                           >
-                            {row.offer}
-                          </DrilldownLink>{" "}
-                          <span style={{ color: "var(--ink-muted)" }}>
-                            ({pctOfAll(row.offer, total)})
-                          </span>
+                            {row.ever_offer}
+                          </DrilldownLink>
                         </td>
+                        <td>{pctRate(row.rate_offer)}</td>
                         <td>
                           <DrilldownLink
-                            to={analyticsDrilldown.byResume(row.resume_version_id, "rejected")}
+                            to={analyticsDrilldown.byResume(
+                              row.resume_version_id,
+                              "ever_rejected",
+                            )}
                           >
-                            {row.rejected}
-                          </DrilldownLink>{" "}
-                          <span style={{ color: "var(--ink-muted)" }}>
-                            ({pctOfAll(row.rejected, total)})
-                          </span>
+                            {row.ever_rejected}
+                          </DrilldownLink>
                         </td>
                       </tr>
                     ))}
@@ -218,29 +220,43 @@ export default function AnalyticsPage() {
 
           <div style={{ display: "grid", gap: 20, gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
             <div className="card">
-              <h2 style={{ margin: "0 0 12px", fontSize: "1.15rem" }}>By status</h2>
-              {statusRows.length === 0 ? (
-                <p style={{ margin: 0, color: "var(--ink-muted)" }}>No data yet.</p>
-              ) : (
-                <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
-                  {statusRows.map(([status, count]) => (
-                    <li
-                      key={status}
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        padding: "6px 0",
-                        borderBottom: "1px solid var(--border)",
-                      }}
-                    >
-                      <span>{statusLabel(status)}</span>
-                      <DrilldownLink to={analyticsDrilldown.byStatus(status)}>
-                        <strong>{count}</strong>
-                      </DrilldownLink>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <h2 style={{ margin: "0 0 8px", fontSize: "1.15rem" }}>Conversion rates (historical)</h2>
+              <p style={{ margin: "0 0 12px", fontSize: "0.9rem", color: "var(--ink-muted)" }}>
+                All-time progression from status history — useful for comparing overall search
+                effectiveness.
+              </p>
+              <ul style={{ margin: 0, padding: 0, listStyle: "none", lineHeight: 1.8 }}>
+                <li>
+                  <DrilldownLink to={analyticsDrilldown.everPositiveProgress()}>
+                    <strong>{pctRate(summary.conversion.rate_positive_progress)}</strong>
+                  </DrilldownLink>{" "}
+                  ever reached pre-assess, screen, or interview (
+                  {summary.conversion.ever_positive_progress} apps)
+                </li>
+                <li>
+                  <DrilldownLink to={analyticsDrilldown.everInterview()}>
+                    <strong>{pctRate(summary.conversion.rate_interview)}</strong>
+                  </DrilldownLink>{" "}
+                  ever reached interview ({summary.conversion.ever_interview} apps)
+                </li>
+                <li>
+                  <DrilldownLink to={analyticsDrilldown.everOffer()}>
+                    <strong>{pctRate(summary.conversion.rate_offer)}</strong>
+                  </DrilldownLink>{" "}
+                  ever got an offer ({summary.conversion.ever_offer} apps)
+                </li>
+                <li>
+                  Interview → offer:{" "}
+                  <strong>{pctRate(summary.conversion.interview_to_offer_rate)}</strong> among apps
+                  that ever reached interview
+                </li>
+                <li>
+                  <DrilldownLink to={analyticsDrilldown.everRejected()}>
+                    <strong>{summary.conversion.ever_rejected}</strong>
+                  </DrilldownLink>{" "}
+                  ever rejected ({pctOfAll(summary.conversion.ever_rejected, total)} of all)
+                </li>
+              </ul>
             </div>
 
             <div className="card">

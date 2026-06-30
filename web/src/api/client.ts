@@ -45,6 +45,8 @@ export type Application = {
   rejected_at?: string | null;
   created_at: string;
   updated_at: string;
+  /** Distinct statuses this application has been in (from status history). */
+  statuses_ever_reached?: ApplicationStatus[];
 };
 
 export type ApplicationBody = {
@@ -225,26 +227,42 @@ export type ResumeAnalyticsRow = {
   resume_version_id: string | null;
   label: string;
   total: number;
-  positive_progress: number;
-  interview: number;
-  offer: number;
-  rejected: number;
+  ever_positive_progress: number;
+  ever_pre_assessment: number;
+  ever_recruiter_screen: number;
+  ever_interview: number;
+  ever_offer: number;
+  ever_rejected: number;
+  rate_interview: number | null;
+  rate_offer: number | null;
+};
+
+export type ConversionStats = {
+  ever_positive_progress: number;
+  ever_interview: number;
+  ever_offer: number;
+  ever_rejected: number;
+  rate_positive_progress: number | null;
+  rate_interview: number | null;
+  rate_offer: number | null;
+  interview_to_offer_rate: number | null;
 };
 
 export type AnalyticsSummary = {
   total: number;
   active_count: number;
   past_count: number;
-  by_status: Record<string, number>;
   by_source: Record<string, number>;
   by_resume: ResumeAnalyticsRow[];
   funnel: {
     total: number;
+    active: number;
     positive_progress: number;
     interview: number;
     offer: number;
     rejected: number;
   };
+  conversion: ConversionStats;
 };
 
 export type StatusHistoryEntry = {

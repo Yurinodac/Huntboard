@@ -41,25 +41,25 @@ export function registerResumesRoutes(app: Express, db: Database.Database) {
 
     let bytes: Buffer;
     try {
-      bytes = Buffer.from(parsed.data.content_base64, "base64");
+      bytes = Buffer.from(parsed.data.content_base64, "base64"); //decode the base64 string into a buffer
     } catch {
       return res.status(400).json({ error: "invalid_base64" });
     }
-    if (bytes.length === 0) {
+    if (bytes.length === 0) { //if the buffer is empty, return an error
       return res.status(400).json({ error: "empty_file" });
     }
-    if (bytes.length > MAX_BYTES) {
+    if (bytes.length > MAX_BYTES) { //if the buffer is too large, return an error
       return res.status(400).json({ error: "file_too_large", max_bytes: MAX_BYTES });
     }
 
-    const stored_filename = `${cryptoRandom()}_${safeFilename(parsed.data.filename)}`;
+    const stored_filename = `${cryptoRandom()}_${safeFilename(parsed.data.filename)}`; //generate a random filename
     const stored_path = path.join(RESUMES_DIR, stored_filename);
-    fs.writeFileSync(stored_path, bytes);
+    fs.writeFileSync(stored_path, bytes); //write the buffer to the file system
 
     const label =
-      parsed.data.label?.trim() ||
-      safeFilename(parsed.data.filename).replace(/\.[^.]+$/, "") ||
-      "Resume";
+      parsed.data.label?.trim() || //if the label is provided, use it
+      safeFilename(parsed.data.filename).replace(/\.[^.]+$/, "") || //if the label is not provided, use the filename
+      "Resume"; //if the label is not provided and the filename is not provided, use "Resume"
 
     const row = repo.insert({
       label,

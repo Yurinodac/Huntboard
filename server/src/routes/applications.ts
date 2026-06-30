@@ -14,6 +14,7 @@ import {
 } from "../import/parseJobPage.js";
 import { CLAUDE_MODEL, isClaudeEnabled } from "../config.js";
 import { ApplicationCreate, ApplicationPatch, type ApplicationSourceValue } from "../types/application.js";
+import { createStatusHistoryRepo } from "../db/statusHistoryRepo.js";
 import { detectSourceFromPostingUrl } from "../import/detectSource.js";
 
 const ImportUrlBody = z.object({ url: z.string().url() });
@@ -106,10 +107,18 @@ const FromEmailBody = z.object({
 export function registerApplicationsRoutes(app: Express, db: Database.Database) {
   const repo = createApplicationRepo(db);
   const linksRepo = createLinksRepo(db);
+  const historyByApp = () => createStatusHistoryRepo(db).listAllByApplication();
 
   app.get("/api/v1/applications", (req, res) => {
     const status = typeof req.query.status === "string" ? req.query.status : undefined;
-    res.json(repo.list(status));
+    const rows = repo.list(status) as Array<Record<string, unknown>>;
+    const history = historyByApp();
+    res.json(
+      rows.map((row) => ({
+        ...row,
+        statuses_ever_reached: [...(history.get(String(row.id)) ?? [String(row.status)])],
+      })),
+    );
   });
 
   app.get("/api/v1/ai/status", (_req, res) => {

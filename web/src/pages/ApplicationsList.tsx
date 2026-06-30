@@ -124,6 +124,7 @@ export default function ApplicationsList() {
       params.delete("status");
       params.delete("source");
       params.delete("resume");
+      params.delete("milestone");
       return params;
     });
   }
@@ -139,6 +140,7 @@ export default function ApplicationsList() {
       next.delete("status");
       next.delete("source");
       next.delete("resume");
+      next.delete("milestone");
       next.delete("view");
       return next;
     });
