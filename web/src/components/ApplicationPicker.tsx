@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { isGmailLinkableStatus } from "../applicationViews";
 import { statusLabel } from "../statusLabels";
 import type { Application } from "../api/client";
 
@@ -30,59 +31,113 @@ export default function ApplicationPicker({
   onChange,
   disabled = false,
 }: ApplicationPickerProps) {
-  const [search, setSearch] = useState("");
-
-  const filteredApplications = useMemo(() => {
-    const matches = applications.filter((app) => matchesApplicationSearch(app, search));
-    if (value && !matches.some((app) => app.id === value)) {
-      const selected = applications.find((app) => app.id === value);
-      if (selected) return [selected, ...matches];
-    }
-    return matches;
-  }, [applications, search, value]);
+  const listId = useId();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const selected = applications.find((app) => app.id === value);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(event: MouseEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+        setQuery("");
+      }
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [open]);
+
+  const linkableApplications = useMemo(
+    () => applications.filter((app) => isGmailLinkableStatus(app.status)),
+    [applications],
+  );
+
+  const filteredApplications = useMemo(() => {
+    const matches = linkableApplications.filter((app) => matchesApplicationSearch(app, query));
+    if (value && selected && !matches.some((app) => app.id === value)) {
+      return [selected, ...matches];
+    }
+    return matches;
+  }, [linkableApplications, query, selected, value]);
+
+  const inputValue = open ? query : selected ? formatApplicationOption(selected) : "";
+
+  function openPicker() {
+    if (disabled) return;
+    setOpen(true);
+    setQuery("");
+  }
+
+  function selectApplication(app: Application) {
+    onChange(app.id);
+    setOpen(false);
+    setQuery("");
+    inputRef.current?.blur();
+  }
 
   return (
-    <div style={{ display: "grid", gap: 8 }}>
-      <label className="search-field" style={{ minWidth: 0 }}>
-        <span className="search-field__label">Search applications</span>
+    <div ref={rootRef} className="app-picker">
+      <div className={`app-picker__combo${open ? " app-picker__combo--open" : ""}`}>
         <input
+          ref={inputRef}
           type="search"
-          placeholder="Company, role, or location…"
-          value={search}
+          className="app-picker__input"
+          role="combobox"
+          aria-expanded={open}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          placeholder="Search active or archived applications…"
+          value={inputValue}
           disabled={disabled}
-          onChange={(e) => setSearch(e.target.value)}
-          aria-label="Search applications to link"
+          onFocus={openPicker}
+          onChange={(event) => {
+            setOpen(true);
+            setQuery(event.target.value);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              setOpen(false);
+              setQuery("");
+              inputRef.current?.blur();
+            }
+            if (event.key === "Enter" && open && filteredApplications[0]) {
+              event.preventDefault();
+              selectApplication(filteredApplications[0]);
+            }
+          }}
         />
-      </label>
-      <label style={{ display: "block", fontSize: "0.9rem" }}>
-        Selected application
-        <select
-          style={{ marginTop: 6, width: "100%" }}
-          value={value}
-          disabled={disabled || filteredApplications.length === 0}
-          onChange={(e) => onChange(e.target.value)}
-        >
-          {filteredApplications.length === 0 ? (
-            <option value="">No applications match your search</option>
-          ) : (
-            filteredApplications.map((app) => (
-              <option key={app.id} value={app.id}>
-                {formatApplicationOption(app)}
-              </option>
-            ))
-          )}
-        </select>
-      </label>
-      {search.trim() && filteredApplications.length > 0 ? (
-        <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--ink-muted)" }}>
-          {filteredApplications.length} match{filteredApplications.length === 1 ? "" : "es"}
-          {selected && !matchesApplicationSearch(selected, search)
-            ? " (current selection kept visible)"
-            : ""}
-        </p>
-      ) : null}
+
+        {open ? (
+          <ul id={listId} className="app-picker__list" role="listbox">
+            {filteredApplications.length === 0 ? (
+              <li className="app-picker__empty" role="option" aria-disabled="true">
+                {linkableApplications.length === 0
+                  ? "No active or archived applications yet."
+                  : "No applications match your search."}
+              </li>
+            ) : (
+              filteredApplications.map((app) => (
+                <li key={app.id}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={app.id === value}
+                    className={`app-picker__option${app.id === value ? " app-picker__option--selected" : ""}`}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => selectApplication(app)}
+                  >
+                    <span className="app-picker__option-label">{formatApplicationOption(app)}</span>
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -25,3 +25,8 @@ export function isPastStatus(status: ApplicationStatus): boolean {
 export function matchesView(status: ApplicationStatus, view: ApplicationsView): boolean {
   return view === "active" ? isActiveStatus(status) : isPastStatus(status);
 }
+
+/** Active pipeline plus archived — used when linking Gmail threads. */
+export function isGmailLinkableStatus(status: ApplicationStatus): boolean {
+  return isActiveStatus(status) || status === "archived";
+}

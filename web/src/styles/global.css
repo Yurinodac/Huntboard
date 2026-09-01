@@ -636,6 +636,69 @@ textarea:focus {
   max-width: 220px;
 }
 
+.app-picker {
+  display: grid;
+  gap: 8px;
+}
+
+.app-picker__combo {
+  position: relative;
+}
+
+.app-picker__input {
+  width: 100%;
+}
+
+.app-picker__combo--open .app-picker__input {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-color: var(--accent);
+}
+
+.app-picker__list {
+  position: absolute;
+  z-index: 20;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent);
+  border-top: none;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  box-shadow: var(--shadow);
+}
+
+.app-picker__option {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--ink);
+}
+
+.app-picker__option:hover,
+.app-picker__option--selected {
+  background: var(--accent-soft);
+}
+
+.app-picker__option-label {
+  font-size: 0.9rem;
+}
+
+.app-picker__empty {
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  color: var(--ink-muted);
+}
+
 .filter-banner {
   display: flex;
   align-items: center;

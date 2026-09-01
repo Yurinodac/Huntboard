@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { isGmailLinkableStatus } from "../applicationViews";
 import ApplicationPicker from "../components/ApplicationPicker";
 import GmailFieldUpdates from "../components/GmailFieldUpdates";
 import {
@@ -31,7 +32,8 @@ function resolveApplicationId(
 ): string {
   const preferred = reassignFor[s.gmail_thread_id] ?? s.application_id;
   if (preferred && applications.some((a) => a.id === preferred)) return preferred;
-  return applications[0]?.id ?? "";
+  const linkable = applications.filter((a) => isGmailLinkableStatus(a.status));
+  return linkable[0]?.id ?? applications[0]?.id ?? "";
 }
 
 function initReassignFor(suggestions: GmailSuggestion[], applications: Application[]): Record<string, string> {
