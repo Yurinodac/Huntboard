@@ -163,6 +163,33 @@ export function deleteApplication(id: string) {
   });
 }
 
+export type StaleAppliedPreview = {
+  days: number;
+  count: number;
+  applications: Array<{
+    id: string;
+    company: string;
+    title: string;
+    applied_since: string;
+    days_in_applied: number;
+  }>;
+};
+
+export function getStaleApplied(days = 30) {
+  return request<StaleAppliedPreview>(`/api/v1/applications/stale-applied?days=${days}`);
+}
+
+export function archiveStaleApplied(days = 30) {
+  return request<{
+    days: number;
+    archived_count: number;
+    archived: StaleAppliedPreview["applications"];
+  }>("/api/v1/applications/archive-stale", {
+    method: "POST",
+    body: JSON.stringify({ days }),
+  });
+}
+
 export async function getApplicationThreads(id: string) {
   const data = await request<{ threads?: ApplicationThread[] }>(
     `/api/v1/applications/${id}/threads`,
@@ -193,6 +220,7 @@ export type GmailSuggestion = {
   reason_codes: string[];
   ai_summary?: string;
   propose_create?: boolean;
+  recalled_from_stale?: boolean;
   field_updates?: FieldUpdateSuggestion[];
 };
 
@@ -201,6 +229,7 @@ export type GmailSyncResult = {
   synced_at: string;
   inbox_empty?: boolean;
   ai_used?: boolean;
+  recalled_from_stale?: Array<{ id: string; company: string; title: string }>;
 };
 
 export function getGmailStatus() {

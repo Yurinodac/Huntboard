@@ -10,6 +10,7 @@ import { createLinksRepo } from "../src/db/linksRepo.js";
 import { migrate } from "../src/db/migrate.js";
 import { createOAuthRepo } from "../src/db/oauthRepo.js";
 import { openDatabase } from "../src/db/pool.js";
+import { archiveStaleApplied } from "../src/applications/staleApplied.js";
 import { registerApplicationsRoutes } from "../src/routes/applications.js";
 import { registerGmailSyncRoutes } from "../src/routes/gmailSync.js";
 
@@ -258,5 +259,78 @@ describe("gmail sync + link routes", () => {
         placeholder: false,
       },
     ]);
+  });
+
+  it("recalls stale-archived applications when inbox email matches", async () => {
+    const { app, db } = makeApp();
+    const apps = createApplicationRepo(db);
+    const oauth = createOAuthRepo(db);
+
+    const row = apps.insert({
+      company: "Stripe",
+      title: "Software Engineer",
+      status: "applied",
+      work_arrangement: "unknown",
+      file_links: [],
+    });
+    expect(row).toBeTruthy();
+
+    db.prepare(
+      `UPDATE application_status_history SET changed_at = ? WHERE application_id = ? AND to_status = 'applied'`,
+    ).run("2026-01-15T12:00:00.000Z", row!.id);
+
+    archiveStaleApplied(db, 30, undefined, new Date("2026-05-11T12:00:00.000Z"));
+    const archived = apps.get(row!.id) as { status: string; stale_archived_at: string | null };
+    expect(archived.status).toBe("archived");
+    expect(archived.stale_archived_at).toBeTruthy();
+
+    oauth.save({
+      access_token: "token",
+      refresh_token: "refresh",
+      expiry_ms: Date.now() + 3600_000,
+      scope: null,
+      token_type: "Bearer",
+    });
+
+    const res = await request(app).post("/api/v1/gmail/sync").send({});
+    expect(res.status).toBe(200);
+    expect(res.body.recalled_from_stale).toHaveLength(1);
+    expect(res.body.recalled_from_stale[0].company).toBe("Stripe");
+    expect(res.body.suggestions[0].recalled_from_stale).toBe(true);
+    expect(res.body.suggestions[0].reason_codes).toContain("stale_recall");
+
+    const updated = apps.get(row!.id) as { status: string; stale_archived_at: string | null };
+    expect(updated.status).toBe("applied");
+    expect(updated.stale_archived_at).toBeNull();
+  });
+
+  it("does not recall manually archived applications without stale flag", async () => {
+    const { app, db } = makeApp();
+    const apps = createApplicationRepo(db);
+    const oauth = createOAuthRepo(db);
+
+    const row = apps.insert({
+      company: "Stripe",
+      title: "Software Engineer",
+      status: "applied",
+      work_arrangement: "unknown",
+      file_links: [],
+    });
+    apps.update(row!.id, { status: "archived" });
+
+    oauth.save({
+      access_token: "token",
+      refresh_token: "refresh",
+      expiry_ms: Date.now() + 3600_000,
+      scope: null,
+      token_type: "Bearer",
+    });
+
+    const res = await request(app).post("/api/v1/gmail/sync").send({});
+    expect(res.status).toBe(200);
+    expect(res.body.recalled_from_stale ?? []).toHaveLength(0);
+
+    const updated = apps.get(row!.id) as { status: string };
+    expect(updated.status).toBe("archived");
   });
 });

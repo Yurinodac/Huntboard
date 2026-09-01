@@ -13,7 +13,7 @@ import { matchesView, type ApplicationsView } from "../applicationViews";
 import ImportFromUrl from "../components/ImportFromUrl";
 import StatusBadge from "../components/StatusBadge";
 import { statusLabel } from "../statusLabels";
-import { getApplications, getResumes, type Application, type ApplicationBody } from "../api/client";
+import { getApplications, getResumes, getStaleApplied, archiveStaleApplied, type Application, type ApplicationBody } from "../api/client";
 
 function listViewLabel(view: ApplicationsListView): string {
   if (view === "past") return "past";
@@ -37,25 +37,36 @@ export default function ApplicationsList() {
   const [resumeLabels, setResumeLabels] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [staleCount, setStaleCount] = useState(0);
+  const [archivingStale, setArchivingStale] = useState(false);
 
-  useEffect(() => {
-    setStatusFilter(statusParam ?? "all");
-  }, [statusParam]);
+  function loadApplications() {
+    setLoading(true);
+    setError(null);
+    return getApplications()
+      .then((data) => {
+        setRows(data);
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : "Failed to load applications");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }
+
+  function loadStaleCount() {
+    return getStaleApplied()
+      .then((data) => setStaleCount(data.count))
+      .catch(() => setStaleCount(0));
+  }
 
   useEffect(() => {
     let alive = true;
-    setLoading(true);
-    setError(null);
-    getApplications()
-      .then((data) => {
-        if (alive) setRows(data);
-      })
-      .catch((err: unknown) => {
-        if (alive) setError(err instanceof Error ? err.message : "Failed to load applications");
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
-      });
+    void loadApplications().then(() => {
+      if (!alive) return;
+    });
+    void loadStaleCount();
     return () => {
       alive = false;
     };
@@ -133,6 +144,29 @@ export default function ApplicationsList() {
     navigate("/applications/new", { state: { draft: preview, importWarnings: warnings } });
   }
 
+  useEffect(() => {
+    setStatusFilter(statusParam ?? "all");
+  }, [statusParam]);
+
+  async function handleArchiveStale() {
+    const noun = staleCount === 1 ? "application" : "applications";
+    const confirmed = window.confirm(
+      `Archive ${staleCount} ${noun} that have stayed in Applied for 30+ days without moving forward? They will move to Past applications.`,
+    );
+    if (!confirmed) return;
+
+    setArchivingStale(true);
+    setError(null);
+    try {
+      await archiveStaleApplied();
+      await Promise.all([loadApplications(), loadStaleCount()]);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to archive stale applications");
+    } finally {
+      setArchivingStale(false);
+    }
+  }
+
   function clearFilters() {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
@@ -203,6 +237,24 @@ export default function ApplicationsList() {
           </span>
           <button type="button" className="btn btn--ghost btn--sm" onClick={clearFilters}>
             Clear filters
+          </button>
+        </div>
+      ) : null}
+
+      {view === "active" && staleCount > 0 ? (
+        <div className="filter-banner">
+          <span>
+            <strong>{staleCount}</strong> active{" "}
+            {staleCount === 1 ? "application has" : "applications have"} been in Applied for 30+
+            days without moving forward.
+          </span>
+          <button
+            type="button"
+            className="btn btn--secondary btn--sm"
+            onClick={() => void handleArchiveStale()}
+            disabled={archivingStale}
+          >
+            {archivingStale ? "Archiving…" : "Archive stale"}
           </button>
         </div>
       ) : null}

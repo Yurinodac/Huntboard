@@ -16,6 +16,11 @@ import { CLAUDE_MODEL, isClaudeEnabled } from "../config.js";
 import { ApplicationCreate, ApplicationPatch, type ApplicationSourceValue } from "../types/application.js";
 import { createStatusHistoryRepo } from "../db/statusHistoryRepo.js";
 import { detectSourceFromPostingUrl } from "../import/detectSource.js";
+import {
+  archiveStaleApplied,
+  DEFAULT_STALE_APPLIED_DAYS,
+  findStaleApplied,
+} from "../applications/staleApplied.js";
 
 const ImportUrlBody = z.object({ url: z.string().url() });
 
@@ -104,6 +109,15 @@ const FromEmailBody = z.object({
   gmail_thread_id: z.string().optional(),
 });
 
+const StaleAppliedQuery = z.object({
+  days: z.coerce.number().int().min(1).max(365).optional(),
+});
+
+const ArchiveStaleBody = z.object({
+  days: z.number().int().min(1).max(365).optional(),
+  ids: z.array(z.string().uuid()).optional(),
+});
+
 export function registerApplicationsRoutes(app: Express, db: Database.Database) {
   const repo = createApplicationRepo(db);
   const linksRepo = createLinksRepo(db);
@@ -119,6 +133,22 @@ export function registerApplicationsRoutes(app: Express, db: Database.Database) 
         statuses_ever_reached: [...(history.get(String(row.id)) ?? [String(row.status)])],
       })),
     );
+  });
+
+  app.get("/api/v1/applications/stale-applied", (req, res) => {
+    const parsed = StaleAppliedQuery.safeParse(req.query);
+    if (!parsed.success) return res.status(400).json(parsed.error.flatten());
+    const days = parsed.data.days ?? DEFAULT_STALE_APPLIED_DAYS;
+    const stale = findStaleApplied(db, days);
+    res.json({ days, count: stale.length, applications: stale });
+  });
+
+  app.post("/api/v1/applications/archive-stale", (req, res) => {
+    const parsed = ArchiveStaleBody.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json(parsed.error.flatten());
+    const days = parsed.data.days ?? DEFAULT_STALE_APPLIED_DAYS;
+    const result = archiveStaleApplied(db, days, parsed.data.ids);
+    res.json({ days, archived_count: result.archived.length, archived: result.archived });
   });
 
   app.get("/api/v1/ai/status", (_req, res) => {

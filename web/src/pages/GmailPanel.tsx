@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import ApplicationPicker from "../components/ApplicationPicker";
 import GmailFieldUpdates from "../components/GmailFieldUpdates";
 import {
   ApiRequestError,
@@ -210,8 +211,14 @@ export default function GmailPanel() {
       setSuggestions(result.suggestions);
       initSelectedFields(result.suggestions);
       setReassignFor(initReassignFor(result.suggestions, apps));
+      const recalled = result.recalled_from_stale ?? [];
       if (result.inbox_empty) {
         setBanner("Your Gmail inbox is empty — nothing to match right now.");
+      } else if (recalled.length > 0) {
+        const names = recalled.map((row) => row.company).join(", ");
+        setBanner(
+          `Recalled ${recalled.length} stale-archived ${recalled.length === 1 ? "application" : "applications"} (${names}) back to Applied after matching inbox email.`,
+        );
       } else if (result.ai_used) {
         setBanner("Inbox checked — review suggested links and field updates.");
       } else {
@@ -417,6 +424,11 @@ export default function GmailPanel() {
                 {s.propose_create ? (
                   <span className="tag">AI: possible new application</span>
                 ) : null}
+                {s.recalled_from_stale ? (
+                  <span className="tag" style={{ marginLeft: 8 }}>
+                    Recalled from stale archive
+                  </span>
+                ) : null}
                 <p style={{ margin: "0 0 10px", fontSize: "0.85rem" }}>
                   Suggested: <strong>{app?.company ?? "Unknown"}</strong>
                   {app?.title ? ` — ${app.title}` : null}
@@ -432,25 +444,22 @@ export default function GmailPanel() {
                   />
                 ) : null}
 
-                <label style={{ display: "block", marginBottom: 12, fontSize: "0.9rem" }}>
-                  Link to application
-                  <select
-                    style={{ marginTop: 6 }}
+                <div style={{ marginBottom: 12 }}>
+                  <p style={{ margin: "0 0 8px", fontSize: "0.9rem", fontWeight: 600 }}>
+                    Link to application
+                  </p>
+                  <ApplicationPicker
+                    applications={applications}
                     value={appId}
-                    onChange={(ev) =>
+                    disabled={cardBusy}
+                    onChange={(id) =>
                       setReassignFor((prev) => ({
                         ...prev,
-                        [s.gmail_thread_id]: ev.target.value,
+                        [s.gmail_thread_id]: id,
                       }))
                     }
-                  >
-                    {applications.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.company} — {a.title}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                  />
+                </div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                   {canLink && hasFieldUpdates ? (
                     <>

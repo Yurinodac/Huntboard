@@ -19,6 +19,11 @@ import {
   scoreThreadAgainstApplication,
   type ApplicationRowForMatching,
 } from "../matching/scoreThread.js";
+import {
+  isEligibleForStaleRecall,
+  recallStaleArchived,
+  type RecalledStaleRow,
+} from "../applications/staleApplied.js";
 
 type GmailSyncRouteDeps = {
   gmailFactory?: (oauth2Client: InstanceType<typeof google.auth.OAuth2>) => gmail_v1.Gmail;
@@ -127,7 +132,18 @@ export function registerGmailSyncRoutes(
           ai_used: false,
         });
       }
-      const apps = appRepo.list() as ApplicationRowForMatching[];
+      const apps = (appRepo.list() as Array<ApplicationRowForMatching & {
+        status?: string;
+        stale_archived_at?: string | null;
+      }>).filter(
+        (row) => row.status !== "archived" || isEligibleForStaleRecall(row),
+      );
+      const appMeta = new Map(
+        apps.map((row) => [
+          row.id,
+          { status: row.status ?? "applied", stale_archived_at: row.stale_archived_at ?? null },
+        ]),
+      );
       const existingThreadIds = new Set(linksRepo.listAllThreadIds());
       type SuggestionRow = {
         application_id: string;
@@ -140,11 +156,35 @@ export function registerGmailSyncRoutes(
         reason_codes: string[];
         ai_summary?: string;
         propose_create?: boolean;
+        recalled_from_stale?: boolean;
         field_updates?: FieldUpdateSuggestion[];
       };
 
+      const recalledFromStale: RecalledStaleRow[] = [];
+
       const aiUpdatesByThread = new Map<string, NonNullable<import("../ai/claude.js").GmailAiSuggestion["application_updates"]>>();
 
+      function preferMatch(
+        candidate: { application_id: string; score: number; reason_codes: string[] },
+        current:
+          | { application_id: string; score: number; reason_codes: string[] }
+          | undefined,
+      ): boolean {
+        if (!current) return true;
+        if (candidate.score > current.score) return true;
+        if (candidate.score < current.score) return false;
+        const candArchived = appMeta.get(candidate.application_id)?.status === "archived";
+        const curArchived = appMeta.get(current.application_id)?.status === "archived";
+        return Boolean(curArchived && !candArchived);
+      }
+
+      function maybeRecallStaleArchived(applicationId: string): boolean {
+        const recalled = recallStaleArchived(db, applicationId);
+        if (!recalled) return false;
+        recalledFromStale.push(recalled);
+        appMeta.set(applicationId, { status: "applied", stale_archived_at: null });
+        return true;
+      }
       function appSnapshot(appId: string): ApplicationSnapshot | null {
         const row = appRepo.get(appId) as Record<string, unknown> | undefined;
         if (!row) return null;
@@ -205,12 +245,13 @@ export function registerGmailSyncRoutes(
 
         for (const row of apps) {
           const score = scoreThreadAgainstApplication(row, thread);
-          if (!best || score.score > best.score) {
-            best = {
-              application_id: score.application_id,
-              score: score.score,
-              reason_codes: score.reason_codes,
-            };
+          const candidate = {
+            application_id: score.application_id,
+            score: score.score,
+            reason_codes: score.reason_codes,
+          };
+          if (preferMatch(candidate, best)) {
+            best = candidate;
           }
         }
 
@@ -226,6 +267,11 @@ export function registerGmailSyncRoutes(
         if (!best || best.score < 25) continue;
         if (linksRepo.hasLink(best.application_id, thread.threadId)) continue;
 
+        const recalled = maybeRecallStaleArchived(best.application_id);
+        const reason_codes = recalled
+          ? [...new Set([...best.reason_codes, "stale_recall"])]
+          : best.reason_codes;
+
         suggestions.push({
           application_id: best.application_id,
           gmail_thread_id: thread.threadId,
@@ -234,7 +280,8 @@ export function registerGmailSyncRoutes(
           snippet: thread.snippet,
           bodyText: thread.bodyText,
           score: best.score,
-          reason_codes: best.reason_codes,
+          reason_codes,
+          recalled_from_stale: recalled,
         });
       }
 
@@ -269,7 +316,12 @@ export function registerGmailSyncRoutes(
                   existing.score = Math.max(existing.score, Math.round(row.confidence * 100));
                   existing.reason_codes = [...new Set([...existing.reason_codes, "ai_match"])];
                   existing.ai_summary = row.summary;
+                  if (maybeRecallStaleArchived(row.application_id)) {
+                    existing.recalled_from_stale = true;
+                    existing.reason_codes = [...new Set([...existing.reason_codes, "stale_recall"])];
+                  }
                 } else if (!seen.has(row.gmail_thread_id) && !existingThreadIds.has(row.gmail_thread_id)) {
+                  const recalled = maybeRecallStaleArchived(row.application_id);
                   suggestions.push({
                     application_id: row.application_id,
                     gmail_thread_id: row.gmail_thread_id,
@@ -278,8 +330,9 @@ export function registerGmailSyncRoutes(
                     snippet: thread.snippet,
                     bodyText: thread.bodyText,
                     score: Math.round(row.confidence * 100),
-                    reason_codes: ["ai_match"],
+                    reason_codes: recalled ? ["ai_match", "stale_recall"] : ["ai_match"],
                     ai_summary: row.summary,
+                    recalled_from_stale: recalled,
                   });
                   seen.add(row.gmail_thread_id);
                 }
@@ -314,6 +367,7 @@ export function registerGmailSyncRoutes(
         synced_at: syncedAt,
         inbox_empty: false,
         ai_used: isClaudeEnabled(),
+        recalled_from_stale: recalledFromStale,
       });
     } catch (err) {
       return res

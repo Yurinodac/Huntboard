@@ -69,6 +69,9 @@ export function migrate(db: Database.Database): void {
   if (!cols.some((c) => c.name === "rejected_at")) {
     db.exec(`ALTER TABLE applications ADD COLUMN rejected_at TEXT`);
   }
+  if (!cols.some((c) => c.name === "stale_archived_at")) {
+    db.exec(`ALTER TABLE applications ADD COLUMN stale_archived_at TEXT`);
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS application_status_history (

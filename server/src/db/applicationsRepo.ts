@@ -123,6 +123,10 @@ export function createApplicationRepo(db: Database.Database) {
             updated,
           );
         }
+        const staleArchivedAt =
+          patch.status !== undefined && patch.status !== "archived"
+            ? null
+            : ((cur.stale_archived_at as string | null | undefined) ?? null);
         db.prepare(
           `UPDATE applications SET
             company=@company, title=@title, applied_date=@applied_date, status=@status,
@@ -131,6 +135,7 @@ export function createApplicationRepo(db: Database.Database) {
             contact_name=@contact_name, contact_email=@contact_email, file_links=@file_links,
             resume_version_id=@resume_version_id, source=@source,
             first_interview_at=@first_interview_at, offer_at=@offer_at, rejected_at=@rejected_at,
+            stale_archived_at=@stale_archived_at,
             updated_at=@updated_at
           WHERE id=@id`,
         ).run({
@@ -139,6 +144,7 @@ export function createApplicationRepo(db: Database.Database) {
             typeof next.file_links === "string"
               ? next.file_links
               : JSON.stringify(next.file_links ?? []),
+          stale_archived_at: staleArchivedAt,
           updated_at: updated,
           id,
         });
