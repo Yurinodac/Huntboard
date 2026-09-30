@@ -42,6 +42,7 @@ export const ApplicationCreate = z.object({
   work_arrangement: WorkArrangement.default("unknown"),
   salary_min: z.number().optional(),
   salary_max: z.number().optional(),
+  benefits: z.string().optional(),
   contact_name: z.string().optional(),
   contact_email: z.string().email().optional().or(z.literal("")),
   file_links: z.array(z.string()).default([]),

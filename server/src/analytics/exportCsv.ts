@@ -14,6 +14,7 @@ const CSV_COLUMNS = [
   "work_arrangement",
   "salary_min",
   "salary_max",
+  "benefits",
   "posting_url",
   "contact_name",
   "contact_email",
@@ -33,7 +34,7 @@ export function applicationsToCsv(db: Database.Database): string {
   const rows = db
     .prepare(
       `SELECT id, company, title, status, source, applied_date, first_interview_at, offer_at,
-              rejected_at, location, work_arrangement, salary_min, salary_max, posting_url,
+              rejected_at, location, work_arrangement, salary_min, salary_max, benefits, posting_url,
               contact_name, contact_email, resume_version_id, created_at, updated_at
        FROM applications
        ORDER BY applied_date DESC, created_at DESC`,

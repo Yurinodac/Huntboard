@@ -31,6 +31,7 @@ type FormState = {
   work_arrangement: WorkArrangement;
   salary_min: string;
   salary_max: string;
+  benefits: string;
   contact_name: string;
   contact_email: string;
   file_links_text: string;
@@ -49,6 +50,7 @@ const EMPTY_FORM: FormState = {
   work_arrangement: "unknown",
   salary_min: "",
   salary_max: "",
+  benefits: "",
   contact_name: "",
   contact_email: "",
   file_links_text: "",
@@ -76,6 +78,7 @@ function toFormState(data: {
   work_arrangement?: WorkArrangement | null;
   salary_min?: number | null;
   salary_max?: number | null;
+  benefits?: string | null;
   contact_name?: string | null;
   contact_email?: string | null;
   file_links?: string[] | string | null;
@@ -101,6 +104,7 @@ function toFormState(data: {
     work_arrangement: data.work_arrangement ?? "unknown",
     salary_min: data.salary_min == null ? "" : String(data.salary_min),
     salary_max: data.salary_max == null ? "" : String(data.salary_max),
+    benefits: data.benefits ?? "",
     contact_name: data.contact_name ?? "",
     contact_email: data.contact_email ?? "",
     file_links_text: links.join("\n"),
@@ -130,6 +134,7 @@ function bodyToFormState(body: ApplicationBody): FormState {
     work_arrangement: body.work_arrangement ?? "unknown",
     salary_min: body.salary_min == null ? "" : String(body.salary_min),
     salary_max: body.salary_max == null ? "" : String(body.salary_max),
+    benefits: body.benefits ?? "",
     contact_name: body.contact_name ?? "",
     contact_email: body.contact_email ?? "",
     file_links_text: (body.file_links ?? []).join("\n"),
@@ -150,6 +155,7 @@ function toPayload(form: FormState): ApplicationBody {
     work_arrangement: form.work_arrangement,
     salary_min: form.salary_min.trim() ? Number(form.salary_min) : undefined,
     salary_max: form.salary_max.trim() ? Number(form.salary_max) : undefined,
+    benefits: form.benefits.trim() || undefined,
     contact_name: form.contact_name.trim() || undefined,
     contact_email: form.contact_email.trim() || undefined,
     file_links: normalizeLinks(form.file_links_text),
@@ -498,6 +504,16 @@ export default function ApplicationDetail() {
               value={form.salary_max}
               onChange={(event) => setForm((prev) => ({ ...prev, salary_max: event.target.value }))}
             />
+          </Field>
+
+          <Field label="Benefits">
+            <textarea
+              rows={4}
+              value={form.benefits}
+              onChange={(event) => setForm((prev) => ({ ...prev, benefits: event.target.value }))}
+              placeholder="Health, dental, PTO, 401(k) match, equity, etc."
+            />
+            <p className="field-hint">Compensation details separate from base salary.</p>
           </Field>
 
           <Field label="Contact name">

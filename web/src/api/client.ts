@@ -36,6 +36,7 @@ export type Application = {
   work_arrangement: WorkArrangement;
   salary_min?: number | null;
   salary_max?: number | null;
+  benefits?: string | null;
   contact_name?: string | null;
   contact_email?: string | null;
   file_links: string[] | string;
@@ -61,6 +62,7 @@ export type ApplicationBody = {
   work_arrangement?: WorkArrangement;
   salary_min?: number;
   salary_max?: number;
+  benefits?: string;
   contact_name?: string;
   contact_email?: string;
   file_links?: string[];

@@ -3,9 +3,9 @@ import { useSearchParams } from "react-router-dom";
 import { isGmailLinkableStatus } from "../applicationViews";
 import ApplicationPicker from "../components/ApplicationPicker";
 import GmailFieldUpdates from "../components/GmailFieldUpdates";
+import StatusPicker from "../components/StatusPicker";
 import {
   ApiRequestError,
-  APPLICATION_STATUSES,
   confirmGmailSuggestion,
   createApplicationFromEmail,
   getApplications,
@@ -19,7 +19,7 @@ import {
   type GmailSuggestion,
   type GmailStatus,
 } from "../api/client";
-import { statusFromProposedLabel, STATUS_LABELS } from "../statusLabels";
+import { statusFromProposedLabel } from "../statusLabels";
 
 function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
@@ -50,59 +50,85 @@ function defaultSelectedFields(updates?: FieldUpdateSuggestion[]): Set<string> {
   return new Set(updates?.map((u) => u.field) ?? []);
 }
 
+function fieldUpdatesWithoutStatus(updates?: FieldUpdateSuggestion[]): FieldUpdateSuggestion[] {
+  return updates?.filter((row) => row.field !== "status") ?? [];
+}
+
+function suggestedStatusValue(s: GmailSuggestion): ApplicationStatus | null {
+  const row = s.field_updates?.find((u) => u.field === "status");
+  if (!row) return null;
+  return statusFromProposedLabel(row.proposed);
+}
+
+function initStatusTargets(
+  suggestions: GmailSuggestion[],
+  applications: Application[],
+): Record<string, ApplicationStatus> {
+  const target: Record<string, ApplicationStatus> = {};
+  for (const s of suggestions) {
+    if (s.propose_create) continue;
+    const appId = resolveApplicationId(s, {}, applications);
+    const app = applications.find((a) => a.id === appId);
+    const proposed = suggestedStatusValue(s);
+    target[s.gmail_thread_id] = proposed ?? app?.status ?? "applied";
+  }
+  return target;
+}
+
 function buildFieldPatch(
   updates: FieldUpdateSuggestion[] | undefined,
   selected: Set<string>,
+  statusTarget?: ApplicationStatus,
+  currentStatus?: ApplicationStatus,
 ): Partial<ApplicationBody> {
   const patch: Partial<ApplicationBody> = {};
-  if (!updates?.length || selected.size === 0) return patch;
 
-  for (const row of updates) {
-    if (!selected.has(row.field)) continue;
-    switch (row.field) {
-      case "status": {
-        const status = statusFromProposedLabel(row.proposed);
-        if ((APPLICATION_STATUSES as readonly string[]).includes(status)) {
-          patch.status = status as ApplicationStatus;
-        } else {
-          const fromLabel = Object.entries(STATUS_LABELS).find(
-            ([, label]) => label.toLowerCase() === row.proposed.trim().toLowerCase(),
-          );
-          if (fromLabel) patch.status = fromLabel[0] as ApplicationStatus;
+  if (updates?.length) {
+    for (const row of updates) {
+      if (row.field === "status") continue;
+      if (!selected.has(row.field)) continue;
+      switch (row.field) {
+        case "applied_date":
+          if (/^\d{4}-\d{2}-\d{2}$/.test(row.proposed.trim())) {
+            patch.applied_date = row.proposed.trim();
+          }
+          break;
+        case "contact_name":
+          patch.contact_name = row.proposed;
+          break;
+        case "contact_email":
+          if (isValidEmail(row.proposed)) patch.contact_email = row.proposed.trim();
+          break;
+        case "location":
+          patch.location = row.proposed;
+          break;
+        case "notes":
+          patch.notes = row.proposed;
+          break;
+        case "salary_min": {
+          const n = Number(row.proposed);
+          if (Number.isFinite(n)) patch.salary_min = n;
+          break;
         }
-        break;
-      }
-      case "applied_date":
-        if (/^\d{4}-\d{2}-\d{2}$/.test(row.proposed.trim())) {
-          patch.applied_date = row.proposed.trim();
+        case "salary_max": {
+          const n = Number(row.proposed);
+          if (Number.isFinite(n)) patch.salary_max = n;
+          break;
         }
-        break;
-      case "contact_name":
-        patch.contact_name = row.proposed;
-        break;
-      case "contact_email":
-        if (isValidEmail(row.proposed)) patch.contact_email = row.proposed.trim();
-        break;
-      case "location":
-        patch.location = row.proposed;
-        break;
-      case "notes":
-        patch.notes = row.proposed;
-        break;
-      case "salary_min": {
-        const n = Number(row.proposed);
-        if (Number.isFinite(n)) patch.salary_min = n;
-        break;
+        default:
+          break;
       }
-      case "salary_max": {
-        const n = Number(row.proposed);
-        if (Number.isFinite(n)) patch.salary_max = n;
-        break;
-      }
-      default:
-        break;
     }
   }
+
+  if (
+    statusTarget &&
+    currentStatus !== undefined &&
+    statusTarget !== currentStatus
+  ) {
+    patch.status = statusTarget;
+  }
+
   return patch;
 }
 
@@ -113,6 +139,7 @@ export default function GmailPanel() {
   const [suggestions, setSuggestions] = useState<GmailSuggestion[]>([]);
   const [reassignFor, setReassignFor] = useState<Record<string, string>>({});
   const [selectedFields, setSelectedFields] = useState<Record<string, Set<string>>>({});
+  const [statusUpdateTarget, setStatusUpdateTarget] = useState<Record<string, ApplicationStatus>>({});
   const [loading, setLoading] = useState(false);
   const [confirmingThreadId, setConfirmingThreadId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -127,8 +154,9 @@ export default function GmailPanel() {
   const initSelectedFields = useCallback((rows: GmailSuggestion[]) => {
     const next: Record<string, Set<string>> = {};
     for (const s of rows) {
-      if (s.field_updates?.length) {
-        next[s.gmail_thread_id] = defaultSelectedFields(s.field_updates);
+      const other = fieldUpdatesWithoutStatus(s.field_updates);
+      if (other.length) {
+        next[s.gmail_thread_id] = defaultSelectedFields(other);
       }
     }
     setSelectedFields(next);
@@ -213,6 +241,7 @@ export default function GmailPanel() {
       setSuggestions(result.suggestions);
       initSelectedFields(result.suggestions);
       setReassignFor(initReassignFor(result.suggestions, apps));
+      setStatusUpdateTarget(initStatusTargets(result.suggestions, apps));
       const recalled = result.recalled_from_stale ?? [];
       if (result.inbox_empty) {
         setBanner("Your Gmail inbox is empty — nothing to match right now.");
@@ -239,7 +268,30 @@ export default function GmailPanel() {
   }
 
   function selectedFor(s: GmailSuggestion): Set<string> {
-    return selectedFields[s.gmail_thread_id] ?? defaultSelectedFields(s.field_updates);
+    const other = fieldUpdatesWithoutStatus(s.field_updates);
+    return selectedFields[s.gmail_thread_id] ?? defaultSelectedFields(other);
+  }
+
+  function statusTargetFor(s: GmailSuggestion, app: Application | undefined): ApplicationStatus {
+    return (
+      statusUpdateTarget[s.gmail_thread_id] ??
+      suggestedStatusValue(s) ??
+      app?.status ??
+      "applied"
+    );
+  }
+
+  function patchForSuggestion(s: GmailSuggestion, app: Application | undefined) {
+    return buildFieldPatch(
+      s.field_updates,
+      selectedFor(s),
+      statusTargetFor(s, app),
+      app?.status,
+    );
+  }
+
+  function hasPendingUpdates(s: GmailSuggestion, app: Application | undefined): boolean {
+    return Object.keys(patchForSuggestion(s, app)).length > 0;
   }
 
   function toggleField(threadId: string, field: string, checked: boolean) {
@@ -254,6 +306,11 @@ export default function GmailPanel() {
   function removeSuggestion(threadId: string) {
     setSuggestions((prev) => prev.filter((x) => x.gmail_thread_id !== threadId));
     setSelectedFields((prev) => {
+      const next = { ...prev };
+      delete next[threadId];
+      return next;
+    });
+    setStatusUpdateTarget((prev) => {
       const next = { ...prev };
       delete next[threadId];
       return next;
@@ -281,7 +338,8 @@ export default function GmailPanel() {
         return;
       }
 
-      const patch = buildFieldPatch(s.field_updates, selectedFor(s));
+      const app = apps.find((a) => a.id === appId);
+      const patch = patchForSuggestion(s, app);
       const hasUpdates = Object.keys(patch).length > 0;
 
       if (options?.updatesOnly && !hasUpdates) {
@@ -299,7 +357,6 @@ export default function GmailPanel() {
         setApplications(await getApplications());
       }
       await refreshStatus();
-      const app = apps.find((a) => a.id === appId);
       setBanner(
         hasUpdates
           ? `Updates applied and thread linked${app ? ` to ${app.company}` : ""}.`
@@ -403,8 +460,11 @@ export default function GmailPanel() {
           {suggestions.map((s) => {
             const appId = effectiveApplicationId(s);
             const app = appById.get(appId);
-            const hasFieldUpdates = (s.field_updates?.length ?? 0) > 0;
+            const otherFieldUpdates = fieldUpdatesWithoutStatus(s.field_updates);
+            const hasOtherFieldUpdates = otherFieldUpdates.length > 0;
             const selected = selectedFor(s);
+            const statusTarget = statusTargetFor(s, app);
+            const pendingUpdates = hasPendingUpdates(s, app);
             const canLink = Boolean(appId && app && !s.propose_create);
             const cardBusy = loading || confirmingThreadId === s.gmail_thread_id;
 
@@ -431,39 +491,65 @@ export default function GmailPanel() {
                     Recalled from stale archive
                   </span>
                 ) : null}
-                <p style={{ margin: "0 0 10px", fontSize: "0.85rem" }}>
-                  Suggested: <strong>{app?.company ?? "Unknown"}</strong>
-                  {app?.title ? ` — ${app.title}` : null}
-                  {" · "}
-                  <span style={{ color: "var(--ink-muted)" }}>{s.reason_codes.join(", ")}</span>
-                </p>
+                <div
+                  style={{
+                    display: "grid",
+                    gap: 12,
+                    marginBottom: 12,
+                    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  }}
+                >
+                  <div>
+                    <p style={{ margin: "0 0 8px", fontSize: "0.9rem", fontWeight: 600 }}>
+                      Application
+                    </p>
+                    <ApplicationPicker
+                      applications={applications}
+                      value={appId}
+                      disabled={cardBusy}
+                      onChange={(id) => {
+                        setReassignFor((prev) => ({
+                          ...prev,
+                          [s.gmail_thread_id]: id,
+                        }));
+                        if (!suggestedStatusValue(s)) {
+                          const nextApp = applications.find((a) => a.id === id);
+                          if (nextApp) {
+                            setStatusUpdateTarget((prev) => ({
+                              ...prev,
+                              [s.gmail_thread_id]: nextApp.status,
+                            }));
+                          }
+                        }
+                      }}
+                    />
+                  </div>
+                  {!s.propose_create ? (
+                    <div>
+                      <StatusPicker
+                        value={statusTarget}
+                        disabled={cardBusy || !app}
+                        onChange={(nextStatus) =>
+                          setStatusUpdateTarget((prev) => ({
+                            ...prev,
+                            [s.gmail_thread_id]: nextStatus,
+                          }))
+                        }
+                      />
+                    </div>
+                  ) : null}
+                </div>
 
-                {hasFieldUpdates && !s.propose_create ? (
+                {hasOtherFieldUpdates && !s.propose_create ? (
                   <GmailFieldUpdates
-                    updates={s.field_updates!}
+                    updates={otherFieldUpdates}
                     selected={selected}
                     onToggle={(field, checked) => toggleField(s.gmail_thread_id, field, checked)}
                   />
                 ) : null}
 
-                <div style={{ marginBottom: 12 }}>
-                  <p style={{ margin: "0 0 8px", fontSize: "0.9rem", fontWeight: 600 }}>
-                    Link to application
-                  </p>
-                  <ApplicationPicker
-                    applications={applications}
-                    value={appId}
-                    disabled={cardBusy}
-                    onChange={(id) =>
-                      setReassignFor((prev) => ({
-                        ...prev,
-                        [s.gmail_thread_id]: id,
-                      }))
-                    }
-                  />
-                </div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  {canLink && hasFieldUpdates ? (
+                  {canLink && pendingUpdates ? (
                     <>
                       <button
                         type="button"
@@ -471,18 +557,16 @@ export default function GmailPanel() {
                         disabled={cardBusy || !!confirmingThreadId}
                         onClick={() => handleConfirm(s)}
                       >
-                        {selected.size > 0 ? "Apply updates & link" : "Link thread"}
+                        Apply updates & link
                       </button>
-                      {selected.size > 0 ? (
-                        <button
-                          type="button"
-                          className="btn btn--secondary"
-                          disabled={cardBusy || !!confirmingThreadId}
-                          onClick={() => handleConfirm(s, { updatesOnly: true })}
-                        >
-                          Apply updates only
-                        </button>
-                      ) : null}
+                      <button
+                        type="button"
+                        className="btn btn--secondary"
+                        disabled={cardBusy || !!confirmingThreadId}
+                        onClick={() => handleConfirm(s, { updatesOnly: true })}
+                      >
+                        Apply updates only
+                      </button>
                     </>
                   ) : canLink ? (
                     <button

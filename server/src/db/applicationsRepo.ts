@@ -59,10 +59,10 @@ export function createApplicationRepo(db: Database.Database) {
         db.prepare(
           `INSERT INTO applications (
             id, company, title, applied_date, status, posting_url, notes, job_summary, location,
-            work_arrangement, salary_min, salary_max, contact_name, contact_email,
+            work_arrangement, salary_min, salary_max, benefits, contact_name, contact_email,
             file_links, resume_version_id, source, first_interview_at, offer_at, rejected_at,
             created_at, updated_at
-          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         ).run(
           id,
           row.company,
@@ -76,6 +76,7 @@ export function createApplicationRepo(db: Database.Database) {
           row.work_arrangement,
           row.salary_min ?? null,
           row.salary_max ?? null,
+          row.benefits ?? null,
           row.contact_name ?? null,
           row.contact_email || null,
           file_links,
@@ -132,7 +133,7 @@ export function createApplicationRepo(db: Database.Database) {
             company=@company, title=@title, applied_date=@applied_date, status=@status,
             posting_url=@posting_url, notes=@notes, job_summary=@job_summary, location=@location,
             work_arrangement=@work_arrangement, salary_min=@salary_min, salary_max=@salary_max,
-            contact_name=@contact_name, contact_email=@contact_email, file_links=@file_links,
+            benefits=@benefits, contact_name=@contact_name, contact_email=@contact_email, file_links=@file_links,
             resume_version_id=@resume_version_id, source=@source,
             first_interview_at=@first_interview_at, offer_at=@offer_at, rejected_at=@rejected_at,
             stale_archived_at=@stale_archived_at,
