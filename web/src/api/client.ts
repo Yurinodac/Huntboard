@@ -279,11 +279,36 @@ export type ConversionStats = {
   interview_to_offer_rate: number | null;
 };
 
+export type MonthSnapshot = {
+  month_key: string;
+  label: string;
+  applications_logged: number;
+  interviews: number;
+  offers: number;
+  rejections: number;
+};
+
+export type PaceWeek = {
+  week_start: string;
+  label: string;
+  count: number;
+};
+
+export type SourcePerformanceRow = {
+  source: string;
+  total: number;
+  ever_interview: number;
+  ever_offer: number;
+  rate_interview: number | null;
+  rate_offer: number | null;
+};
+
 export type AnalyticsSummary = {
   total: number;
   active_count: number;
   past_count: number;
   by_source: Record<string, number>;
+  by_source_performance: SourcePerformanceRow[];
   by_resume: ResumeAnalyticsRow[];
   funnel: {
     total: number;
@@ -294,6 +319,8 @@ export type AnalyticsSummary = {
     rejected: number;
   };
   conversion: ConversionStats;
+  this_month: MonthSnapshot;
+  pace_weeks: PaceWeek[];
 };
 
 export type StatusHistoryEntry = {

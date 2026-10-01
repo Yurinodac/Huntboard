@@ -29,6 +29,8 @@ const MILESTONE_STATUSES: Record<MilestoneFilter, readonly string[]> = {
   rejected: ["rejected"],
 };
 
+export type MonthMetricFilter = "logged" | "interview" | "offer" | "rejection";
+
 export type ApplicationListFilters = {
   view: ApplicationsListView;
   bucketId: string | null;
@@ -36,7 +38,15 @@ export type ApplicationListFilters = {
   source: string | null;
   resume: string | null;
   milestone: MilestoneFilter | null;
+  month: string | null;
+  monthMetric: MonthMetricFilter | null;
 };
+
+const MONTH_METRICS: MonthMetricFilter[] = ["logged", "interview", "offer", "rejection"];
+
+function isMonthKey(value: string): boolean {
+  return /^\d{4}-\d{2}$/.test(value);
+}
 
 export function parseApplicationListFilters(params: URLSearchParams): ApplicationListFilters {
   const viewParam = params.get("view");
@@ -50,6 +60,14 @@ export function parseApplicationListFilters(params: URLSearchParams): Applicatio
       ? (milestoneParam as MilestoneFilter)
       : null;
 
+  const monthParam = params.get("month");
+  const month = monthParam && isMonthKey(monthParam) ? monthParam : null;
+  const monthMetricParam = params.get("month_metric");
+  const monthMetric =
+    monthMetricParam && MONTH_METRICS.includes(monthMetricParam as MonthMetricFilter)
+      ? (monthMetricParam as MonthMetricFilter)
+      : null;
+
   return {
     view,
     bucketId: params.get("bucket"),
@@ -57,6 +75,8 @@ export function parseApplicationListFilters(params: URLSearchParams): Applicatio
     source: params.get("source"),
     resume: params.get("resume"),
     milestone,
+    month,
+    monthMetric: month && monthMetric ? monthMetric : null,
   };
 }
 
@@ -67,6 +87,8 @@ export function applicationsFilterUrl(filters: {
   source?: string;
   resume?: string | null;
   milestone?: MilestoneFilter;
+  month?: string;
+  monthMetric?: MonthMetricFilter;
 }): string {
   const params = new URLSearchParams();
   if (filters.view === "past") params.set("view", "past");
@@ -76,6 +98,10 @@ export function applicationsFilterUrl(filters: {
   if (filters.status) params.set("status", filters.status);
   if (filters.source) params.set("source", filters.source);
   if (filters.milestone) params.set("milestone", filters.milestone);
+  if (filters.month && filters.monthMetric) {
+    params.set("month", filters.month);
+    params.set("month_metric", filters.monthMetric);
+  }
   if (filters.resume === null) params.set("resume", "none");
   else if (filters.resume) params.set("resume", filters.resume);
 
@@ -109,10 +135,57 @@ function everReachedMilestone(app: Application, milestone: MilestoneFilter): boo
   return MILESTONE_STATUSES[milestone].some((status) => ever.has(status));
 }
 
+function logDateForApp(app: Application): string {
+  const fromApplied = app.applied_date?.trim().slice(0, 10);
+  if (fromApplied && /^\d{4}-\d{2}-\d{2}$/.test(fromApplied)) return fromApplied;
+  return app.created_at.slice(0, 10);
+}
+
+function monthLabelFromKey(monthKey: string): string {
+  const [y, m] = monthKey.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleString("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function monthMetricLabel(metric: MonthMetricFilter): string {
+  switch (metric) {
+    case "logged":
+      return "Logged";
+    case "interview":
+      return "First interview";
+    case "offer":
+      return "Offer";
+    case "rejection":
+      return "Rejection";
+  }
+}
+
+function matchesMonthFilter(
+  app: Application,
+  month: string,
+  metric: MonthMetricFilter,
+): boolean {
+  const inMonth = (iso: string | null | undefined) => iso?.slice(0, 7) === month;
+  switch (metric) {
+    case "logged":
+      return logDateForApp(app).slice(0, 7) === month;
+    case "interview":
+      return inMonth(app.first_interview_at);
+    case "offer":
+      return inMonth(app.offer_at);
+    case "rejection":
+      return inMonth(app.rejected_at);
+  }
+}
+
 /** Links from Analytics metrics to filtered application lists */
 export const analyticsDrilldown = {
   total: () => applicationsFilterUrl({ view: "all" }),
   active: () => applicationsFilterUrl({ view: "active" }),
+  past: () => applicationsFilterUrl({ view: "past" }),
   positiveProgress: () => applicationsFilterUrl({ view: "all", bucket: "in_conversation" }),
   everPositiveProgress: () =>
     applicationsFilterUrl({ view: "all", milestone: "positive_progress" }),
@@ -122,7 +195,19 @@ export const analyticsDrilldown = {
   everOffer: () => applicationsFilterUrl({ view: "all", milestone: "offer" }),
   rejected: () => applicationsFilterUrl({ view: "past", status: "rejected" }),
   everRejected: () => applicationsFilterUrl({ view: "all", milestone: "rejected" }),
+  loggedInMonth: (monthKey: string) =>
+    applicationsFilterUrl({ view: "all", month: monthKey, monthMetric: "logged" }),
+  interviewsInMonth: (monthKey: string) =>
+    applicationsFilterUrl({ view: "all", month: monthKey, monthMetric: "interview" }),
+  offersInMonth: (monthKey: string) =>
+    applicationsFilterUrl({ view: "all", month: monthKey, monthMetric: "offer" }),
+  rejectionsInMonth: (monthKey: string) =>
+    applicationsFilterUrl({ view: "all", month: monthKey, monthMetric: "rejection" }),
   bySource: (source: string) => applicationsFilterUrl({ view: "all", source }),
+  bySourceEverInterview: (source: string) =>
+    applicationsFilterUrl({ view: "all", source, milestone: "interview" }),
+  bySourceEverOffer: (source: string) =>
+    applicationsFilterUrl({ view: "all", source, milestone: "offer" }),
   byResume: (
     resumeVersionId: string | null,
     metric:
@@ -162,6 +247,7 @@ export function hasApplicationListFilters(filters: ApplicationListFilters): bool
       filters.source ||
       filters.resume ||
       filters.milestone ||
+      filters.month ||
       filters.view === "all",
   );
 }
@@ -179,7 +265,8 @@ export function describeApplicationListFilters(
     !filters.status &&
     !filters.source &&
     !filters.resume &&
-    !filters.milestone
+    !filters.milestone &&
+    !filters.month
   ) {
     parts.push("All applications");
   } else if (
@@ -188,11 +275,24 @@ export function describeApplicationListFilters(
     !filters.source &&
     !filters.resume &&
     !filters.milestone &&
+    !filters.month &&
     !filters.bucketId
   ) {
     parts.push("Past applications");
-  } else if (filters.view === "active" && !filters.bucketId && !filters.status && !filters.source && !filters.resume && !filters.milestone) {
+  } else if (
+    filters.view === "active" &&
+    !filters.bucketId &&
+    !filters.status &&
+    !filters.source &&
+    !filters.resume &&
+    !filters.milestone &&
+    !filters.month
+  ) {
     parts.push("Active pipeline");
+  }
+
+  if (filters.month && filters.monthMetric) {
+    parts.push(`${monthMetricLabel(filters.monthMetric)} · ${monthLabelFromKey(filters.month)}`);
   }
 
   if (bucket) parts.push(bucket.label);
@@ -234,6 +334,10 @@ export function matchesApplicationListFilters(
   }
 
   if (filters.milestone && !everReachedMilestone(app, filters.milestone)) return false;
+
+  if (filters.month && filters.monthMetric) {
+    if (!matchesMonthFilter(app, filters.month, filters.monthMetric)) return false;
+  }
 
   return true;
 }

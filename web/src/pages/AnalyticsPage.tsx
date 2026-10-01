@@ -4,18 +4,21 @@ import {
   applicationsExportCsvUrl,
   getAnalyticsSummary,
   type AnalyticsSummary,
+  type PaceWeek,
+  type ResumeAnalyticsRow,
+  type SourcePerformanceRow,
 } from "../api/client";
 import { analyticsDrilldown } from "../applicationFilters";
 import { sourceLabel } from "../sourceLabels";
 
-function pctOfAll(part: number, total: number): string {
-  if (total === 0) return "—";
-  return `${Math.round((part / total) * 100)}%`;
-}
-
 function pctRate(value: number | null): string {
   if (value == null) return "—";
   return `${value}%`;
+}
+
+function pctOfAll(part: number, total: number): string {
+  if (total === 0) return "—";
+  return `${Math.round((part / total) * 100)}%`;
 }
 
 function DrilldownLink({
@@ -31,6 +34,230 @@ function DrilldownLink({
     <Link to={to} className="drilldown-link" title={title ?? "View matching applications"}>
       {children}
     </Link>
+  );
+}
+
+function DashboardSection({
+  title,
+  hint,
+  children,
+}: {
+  title: string;
+  hint?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="dashboard-section">
+      <h2 className="dashboard-section__title">{title}</h2>
+      {hint ? <p className="dashboard-section__hint">{hint}</p> : null}
+      {children}
+    </section>
+  );
+}
+
+function MetricTile({
+  to,
+  value,
+  label,
+  sub,
+}: {
+  to?: string;
+  value: ReactNode;
+  label: string;
+  sub?: string;
+}) {
+  const inner = (
+    <>
+      <strong className="metric-tile__value">{value}</strong>
+      <span className="metric-tile__label">{label}</span>
+      {sub ? <span className="metric-tile__sub">{sub}</span> : null}
+    </>
+  );
+  if (to) {
+    return (
+      <Link to={to} className="metric-tile metric-tile--link">
+        {inner}
+      </Link>
+    );
+  }
+  return <div className="metric-tile">{inner}</div>;
+}
+
+function RateBar({ rate }: { rate: number | null }) {
+  const width = rate == null ? 0 : Math.min(100, Math.max(0, rate));
+  return (
+    <div className="rate-bar" aria-hidden="true">
+      <div className="rate-bar__fill" style={{ width: `${width}%` }} />
+    </div>
+  );
+}
+
+function PaceChart({ weeks }: { weeks: PaceWeek[] }) {
+  const max = useMemo(() => Math.max(1, ...weeks.map((w) => w.count)), [weeks]);
+  if (weeks.length === 0) {
+    return <p style={{ margin: 0, color: "var(--ink-muted)" }}>No applications logged yet.</p>;
+  }
+  return (
+    <div className="pace-chart" role="img" aria-label="Applications logged per week">
+      {weeks.map((week) => (
+        <div key={week.week_start} className="pace-chart__col">
+          <div
+            className="pace-chart__bar"
+            style={{ height: `${Math.max(8, (week.count / max) * 100)}%` }}
+            title={`${week.count} application${week.count === 1 ? "" : "s"}`}
+          />
+          <span className="pace-chart__count">{week.count}</span>
+          <span className="pace-chart__label">{week.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SourceBars({
+  rows,
+  total,
+}: {
+  rows: [string, number][];
+  total: number;
+}) {
+  const max = Math.max(1, ...rows.map(([, c]) => c));
+  return (
+    <ul className="source-bars">
+      {rows.map(([source, count]) => (
+        <li key={source} className="source-bars__row">
+          <div className="source-bars__head">
+            <span>{sourceLabel(source)}</span>
+            <DrilldownLink to={analyticsDrilldown.bySource(source)}>
+              <strong>{count}</strong>
+            </DrilldownLink>
+          </div>
+          <div className="rate-bar">
+            <div
+              className="rate-bar__fill"
+              style={{ width: `${(count / max) * 100}%` }}
+            />
+          </div>
+          <span className="source-bars__pct">{pctOfAll(count, total)} of all</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ResumeTable({ rows, total }: { rows: ResumeAnalyticsRow[]; total: number }) {
+  const sorted = [...rows].sort(
+    (a, b) => (b.rate_interview ?? -1) - (a.rate_interview ?? -1) || b.total - a.total,
+  );
+  return (
+    <div className="table-wrap">
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>Resume</th>
+            <th>Uses</th>
+            <th>Interview rate</th>
+            <th>Offer rate</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((row) => (
+            <tr key={row.resume_version_id ?? "none"}>
+              <td>
+                <DrilldownLink to={analyticsDrilldown.byResume(row.resume_version_id)}>
+                  {row.label}
+                </DrilldownLink>
+              </td>
+              <td>
+                <DrilldownLink to={analyticsDrilldown.byResume(row.resume_version_id)}>
+                  {row.total}
+                </DrilldownLink>
+                <span className="table-muted"> ({pctOfAll(row.total, total)} of all)</span>
+              </td>
+              <td className="rate-cell">
+                <DrilldownLink
+                  to={analyticsDrilldown.byResume(row.resume_version_id, "ever_interview")}
+                >
+                  {pctRate(row.rate_interview)}
+                </DrilldownLink>
+                <span className="table-muted">
+                  {" "}
+                  · {row.ever_interview} ever
+                </span>
+                <RateBar rate={row.rate_interview} />
+              </td>
+              <td className="rate-cell">
+                <DrilldownLink
+                  to={analyticsDrilldown.byResume(row.resume_version_id, "ever_offer")}
+                >
+                  {pctRate(row.rate_offer)}
+                </DrilldownLink>
+                <span className="table-muted">
+                  {" "}
+                  · {row.ever_offer} ever
+                </span>
+                <RateBar rate={row.rate_offer} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function SourcePerformanceTable({ rows }: { rows: SourcePerformanceRow[] }) {
+  const sorted = [...rows].filter((r) => r.total > 0).sort(
+    (a, b) => (b.rate_interview ?? -1) - (a.rate_interview ?? -1) || b.total - a.total,
+  );
+  if (sorted.length === 0) {
+    return <p style={{ margin: 0, color: "var(--ink-muted)" }}>No source data yet.</p>;
+  }
+  return (
+    <div className="table-wrap">
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>Source</th>
+            <th>Applications</th>
+            <th>Interview rate</th>
+            <th>Offer rate</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((row) => (
+            <tr key={row.source}>
+              <td>{sourceLabel(row.source)}</td>
+              <td>
+                <DrilldownLink to={analyticsDrilldown.bySource(row.source)}>
+                  {row.total}
+                </DrilldownLink>
+              </td>
+              <td className="rate-cell">
+                <DrilldownLink to={analyticsDrilldown.bySourceEverInterview(row.source)}>
+                  {pctRate(row.rate_interview)}
+                </DrilldownLink>
+                <span className="table-muted">
+                  {" "}
+                  · {row.ever_interview} ever
+                </span>
+                <RateBar rate={row.rate_interview} />
+              </td>
+              <td className="rate-cell">
+                <DrilldownLink to={analyticsDrilldown.bySourceEverOffer(row.source)}>
+                  {pctRate(row.rate_offer)}
+                </DrilldownLink>
+                <span className="table-muted">
+                  {" "}
+                  · {row.ever_offer} ever
+                </span>
+                <RateBar rate={row.rate_offer} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -54,251 +281,166 @@ export default function AnalyticsPage() {
   return (
     <>
       <header className="page-header">
-        <h1>Analytics</h1>
-        <p>
-          Pipeline stats from your saved applications. The funnel shows where applications are{" "}
-          <strong>right now</strong>; resume and conversion sections use{" "}
-          <strong>status history</strong> so past progress still counts after a rejection or status
-          change.
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            flexWrap: "wrap",
+            gap: 12,
+          }}
+        >
+          <div>
+            <h1>Analytics</h1>
+            <p style={{ marginBottom: 8 }}>
+              A quick read on pacing, pipeline health, and what&apos;s working — click numbers to
+              open filtered application lists.
+            </p>
+          </div>
+          <a className="btn btn--ghost" href={applicationsExportCsvUrl()} download>
+            Export CSV
+          </a>
+        </div>
+        <p className="dashboard-footnote">
+          Percentages marked &quot;of all&quot; use your full application history (
+          <DrilldownLink to={analyticsDrilldown.total()}>{total} total</DrilldownLink>
+          ) as the denominator. Resume rates use each resume&apos;s own application count.
         </p>
       </header>
 
       {error ? <div className="alert alert--error">{error}</div> : null}
-
       {!summary && !error ? <p style={{ color: "var(--ink-muted)" }}>Loading…</p> : null}
 
       {summary ? (
         <>
-          <div className="stat-grid" style={{ marginBottom: 24 }}>
-            <Link to={analyticsDrilldown.total()} className="stat-card stat-card--link">
-              <strong>{summary.total}</strong>
-              <span>Total applications</span>
-            </Link>
-            <Link to={analyticsDrilldown.active()} className="stat-card stat-card--link">
-              <strong>{summary.funnel.active}</strong>
-              <span>Active pipeline ({pctOfAll(summary.funnel.active, total)})</span>
-            </Link>
-            <Link to={analyticsDrilldown.everInterview()} className="stat-card stat-card--link">
-              <strong>{summary.conversion.ever_interview}</strong>
-              <span>
-                Ever reached interview ({pctRate(summary.conversion.rate_interview)} of all)
-              </span>
-            </Link>
-            <Link to={analyticsDrilldown.everOffer()} className="stat-card stat-card--link">
-              <strong>{summary.conversion.ever_offer}</strong>
-              <span>Ever got offer ({pctRate(summary.conversion.rate_offer)} of all)</span>
-            </Link>
-          </div>
+          <DashboardSection
+            title={`This month — ${summary.this_month.label}`}
+            hint="Activity dated this calendar month (applications by apply date; outcomes by key dates)."
+          >
+            <div className="metric-grid">
+              <MetricTile
+                to={analyticsDrilldown.loggedInMonth(summary.this_month.month_key)}
+                value={summary.this_month.applications_logged}
+                label="Applications logged"
+              />
+              <MetricTile
+                to={analyticsDrilldown.interviewsInMonth(summary.this_month.month_key)}
+                value={summary.this_month.interviews}
+                label="Interviews (first)"
+              />
+              <MetricTile
+                to={analyticsDrilldown.offersInMonth(summary.this_month.month_key)}
+                value={summary.this_month.offers}
+                label="Offers"
+              />
+              <MetricTile
+                to={analyticsDrilldown.rejectionsInMonth(summary.this_month.month_key)}
+                value={summary.this_month.rejections}
+                label="Rejections"
+              />
+            </div>
+          </DashboardSection>
 
-          <div className="card" style={{ marginBottom: 20 }}>
-            <h2 style={{ margin: "0 0 12px", fontSize: "1.15rem" }}>Funnel (current status)</h2>
-            <p style={{ margin: "0 0 12px", fontSize: "0.9rem", color: "var(--ink-muted)" }}>
-              Snapshot of where applications sit today — not historical highs.
-            </p>
-            <ul style={{ margin: 0, paddingLeft: 20, lineHeight: 1.7 }}>
-              <li>
-                <DrilldownLink to={analyticsDrilldown.total()}>
-                  <strong>{summary.funnel.total}</strong>
-                </DrilldownLink>{" "}
-                total logged
-              </li>
-              <li>
-                <DrilldownLink to={analyticsDrilldown.active()}>
-                  <strong>{summary.funnel.active}</strong>
-                </DrilldownLink>{" "}
-                active in pipeline ({pctOfAll(summary.funnel.active, total)} of all)
-              </li>
-              <li>
-                <DrilldownLink to={analyticsDrilldown.positiveProgress()}>
-                  <strong>{summary.funnel.positive_progress}</strong>
-                </DrilldownLink>{" "}
-                currently at pre-assessment, screen, or interview (
-                {pctOfAll(summary.funnel.positive_progress, total)} of all)
-              </li>
-              <li>
-                <DrilldownLink to={analyticsDrilldown.interview()}>
-                  <strong>{summary.funnel.interview}</strong>
-                </DrilldownLink>{" "}
-                currently at interview ({pctOfAll(summary.funnel.interview, total)} of all)
-              </li>
-              <li>
-                <DrilldownLink to={analyticsDrilldown.offer()}>
-                  <strong>{summary.funnel.offer}</strong>
-                </DrilldownLink>{" "}
-                currently at offer ({pctOfAll(summary.funnel.offer, total)} of all)
-              </li>
-              <li>
-                <DrilldownLink to={analyticsDrilldown.rejected()}>
-                  <strong>{summary.funnel.rejected}</strong>
-                </DrilldownLink>{" "}
-                currently rejected ({pctOfAll(summary.funnel.rejected, total)} of all)
-              </li>
-            </ul>
-          </div>
+          <DashboardSection
+            title="Application pace"
+            hint="Applications logged per week (by apply date, or created date if apply date is empty). Last 8 weeks."
+          >
+            <PaceChart weeks={summary.pace_weeks} />
+          </DashboardSection>
+
+          <DashboardSection
+            title="Pipeline today"
+            hint="Where applications sit right now — a snapshot, not historical highs."
+          >
+            <div className="metric-grid">
+              <MetricTile
+                to={analyticsDrilldown.active()}
+                value={summary.funnel.active}
+                label="Active pipeline"
+                sub={pctOfAll(summary.funnel.active, total) + " of all"}
+              />
+              <MetricTile
+                to={analyticsDrilldown.positiveProgress()}
+                value={summary.funnel.positive_progress}
+                label="In progress"
+                sub="Pre-assess / screen / interview"
+              />
+              <MetricTile
+                to={analyticsDrilldown.interview()}
+                value={summary.funnel.interview}
+                label="At interview"
+              />
+              <MetricTile
+                to={analyticsDrilldown.offer()}
+                value={summary.funnel.offer}
+                label="At offer"
+              />
+              <MetricTile
+                to={analyticsDrilldown.past()}
+                value={summary.past_count}
+                label="Past (closed)"
+                sub={`${summary.funnel.rejected} rejected now`}
+              />
+            </div>
+          </DashboardSection>
+
+          <DashboardSection
+            title="Search performance (all time)"
+            hint="Based on status history — still counts after a rejection or status change."
+          >
+            <div className="metric-grid metric-grid--wide">
+              <MetricTile
+                to={analyticsDrilldown.everInterview()}
+                value={pctRate(summary.conversion.rate_interview)}
+                label="Ever reached interview"
+                sub={`${summary.conversion.ever_interview} apps`}
+              />
+              <MetricTile
+                to={analyticsDrilldown.everOffer()}
+                value={pctRate(summary.conversion.rate_offer)}
+                label="Ever got an offer"
+                sub={`${summary.conversion.ever_offer} apps`}
+              />
+              <MetricTile
+                value={pctRate(summary.conversion.interview_to_offer_rate)}
+                label="Interview → offer"
+                sub="Among apps that ever interviewed"
+              />
+              <MetricTile
+                to={analyticsDrilldown.everPositiveProgress()}
+                value={pctRate(summary.conversion.rate_positive_progress)}
+                label="Ever progressed"
+                sub="Pre-assess / screen / interview"
+              />
+            </div>
+          </DashboardSection>
 
           {summary.by_resume.length > 0 ? (
-            <div className="card" style={{ marginBottom: 20 }}>
-              <h2 style={{ margin: "0 0 8px", fontSize: "1.15rem" }}>By resume version</h2>
-              <p style={{ margin: "0 0 12px", fontSize: "0.9rem", color: "var(--ink-muted)" }}>
-                Historical performance per resume — counts include applications that{" "}
-                <strong>ever reached</strong> each stage, even if they later moved to rejected or
-                another status. Interview % and offer % are of that resume&apos;s uses.
-              </p>
-              <div className="table-wrap">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Resume</th>
-                      <th>Uses</th>
-                      <th>Ever pre-assess / screen / interview</th>
-                      <th>Ever interview</th>
-                      <th>Interview rate</th>
-                      <th>Ever offer</th>
-                      <th>Offer rate</th>
-                      <th>Ever rejected</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {summary.by_resume.map((row) => (
-                      <tr key={row.resume_version_id ?? "none"}>
-                        <td>
-                          <DrilldownLink to={analyticsDrilldown.byResume(row.resume_version_id)}>
-                            {row.label}
-                          </DrilldownLink>
-                        </td>
-                        <td>
-                          <DrilldownLink to={analyticsDrilldown.byResume(row.resume_version_id)}>
-                            {row.total}
-                          </DrilldownLink>
-                        </td>
-                        <td>
-                          <DrilldownLink
-                            to={analyticsDrilldown.byResume(
-                              row.resume_version_id,
-                              "ever_positive_progress",
-                            )}
-                          >
-                            {row.ever_positive_progress}
-                          </DrilldownLink>
-                        </td>
-                        <td>
-                          <DrilldownLink
-                            to={analyticsDrilldown.byResume(
-                              row.resume_version_id,
-                              "ever_interview",
-                            )}
-                          >
-                            {row.ever_interview}
-                          </DrilldownLink>
-                        </td>
-                        <td>{pctRate(row.rate_interview)}</td>
-                        <td>
-                          <DrilldownLink
-                            to={analyticsDrilldown.byResume(row.resume_version_id, "ever_offer")}
-                          >
-                            {row.ever_offer}
-                          </DrilldownLink>
-                        </td>
-                        <td>{pctRate(row.rate_offer)}</td>
-                        <td>
-                          <DrilldownLink
-                            to={analyticsDrilldown.byResume(
-                              row.resume_version_id,
-                              "ever_rejected",
-                            )}
-                          >
-                            {row.ever_rejected}
-                          </DrilldownLink>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <DashboardSection
+              title="Which resume is working?"
+              hint="Interview and offer rates per resume version (historical milestones). Sorted by interview rate."
+            >
+              <ResumeTable rows={summary.by_resume} total={total} />
+            </DashboardSection>
           ) : null}
 
-          <div style={{ display: "grid", gap: 20, gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
-            <div className="card">
-              <h2 style={{ margin: "0 0 8px", fontSize: "1.15rem" }}>Conversion rates (historical)</h2>
-              <p style={{ margin: "0 0 12px", fontSize: "0.9rem", color: "var(--ink-muted)" }}>
-                All-time progression from status history — useful for comparing overall search
-                effectiveness.
-              </p>
-              <ul style={{ margin: 0, padding: 0, listStyle: "none", lineHeight: 1.8 }}>
-                <li>
-                  <DrilldownLink to={analyticsDrilldown.everPositiveProgress()}>
-                    <strong>{pctRate(summary.conversion.rate_positive_progress)}</strong>
-                  </DrilldownLink>{" "}
-                  ever reached pre-assess, screen, or interview (
-                  {summary.conversion.ever_positive_progress} apps)
-                </li>
-                <li>
-                  <DrilldownLink to={analyticsDrilldown.everInterview()}>
-                    <strong>{pctRate(summary.conversion.rate_interview)}</strong>
-                  </DrilldownLink>{" "}
-                  ever reached interview ({summary.conversion.ever_interview} apps)
-                </li>
-                <li>
-                  <DrilldownLink to={analyticsDrilldown.everOffer()}>
-                    <strong>{pctRate(summary.conversion.rate_offer)}</strong>
-                  </DrilldownLink>{" "}
-                  ever got an offer ({summary.conversion.ever_offer} apps)
-                </li>
-                <li>
-                  Interview → offer:{" "}
-                  <strong>{pctRate(summary.conversion.interview_to_offer_rate)}</strong> among apps
-                  that ever reached interview
-                </li>
-                <li>
-                  <DrilldownLink to={analyticsDrilldown.everRejected()}>
-                    <strong>{summary.conversion.ever_rejected}</strong>
-                  </DrilldownLink>{" "}
-                  ever rejected ({pctOfAll(summary.conversion.ever_rejected, total)} of all)
-                </li>
-              </ul>
-            </div>
+          {summary.by_source_performance.length > 0 ? (
+            <DashboardSection
+              title="Interview rate by source"
+              hint="Historical milestones per channel — which sources lead to interviews and offers. Sorted by interview rate."
+            >
+              <SourcePerformanceTable rows={summary.by_source_performance} />
+            </DashboardSection>
+          ) : null}
 
-            <div className="card">
-              <h2 style={{ margin: "0 0 12px", fontSize: "1.15rem" }}>By source (auto-detected)</h2>
-              {sourceRows.length === 0 ? (
-                <p style={{ margin: 0, color: "var(--ink-muted)" }}>No data yet.</p>
-              ) : (
-                <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
-                  {sourceRows.map(([source, count]) => (
-                    <li
-                      key={source}
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        padding: "6px 0",
-                        borderBottom: "1px solid var(--border)",
-                      }}
-                    >
-                      <span>{sourceLabel(source)}</span>
-                      <DrilldownLink to={analyticsDrilldown.bySource(source)}>
-                        <strong>{count}</strong>
-                      </DrilldownLink>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
-
-          <div className="card" style={{ marginTop: 24 }}>
-            <h2 style={{ margin: "0 0 8px", fontSize: "1.15rem" }}>Export for charts</h2>
-            <p style={{ margin: "0 0 16px", color: "var(--ink-muted)", fontSize: "0.95rem" }}>
-              Download all applications as CSV (includes source, key dates, salary, and status).
-              Open in Excel or Google Sheets to build charts.
-            </p>
-            <a className="btn btn--primary" href={applicationsExportCsvUrl()} download>
-              Download CSV
-            </a>
-            <Link to="/applications" className="btn btn--ghost" style={{ marginLeft: 10 }}>
-              Back to applications
-            </Link>
-          </div>
+          {sourceRows.length > 0 ? (
+            <DashboardSection
+              title="Application volume by source"
+              hint="Where you logged applications — click a count to open that list."
+            >
+              <SourceBars rows={sourceRows} total={total} />
+            </DashboardSection>
+          ) : null}
         </>
       ) : null}
     </>

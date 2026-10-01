@@ -136,6 +136,8 @@ export default function ApplicationsList() {
       params.delete("source");
       params.delete("resume");
       params.delete("milestone");
+      params.delete("month");
+      params.delete("month_metric");
       return params;
     });
   }
@@ -175,6 +177,8 @@ export default function ApplicationsList() {
       next.delete("source");
       next.delete("resume");
       next.delete("milestone");
+      next.delete("month");
+      next.delete("month_metric");
       next.delete("view");
       return next;
     });

@@ -184,10 +184,14 @@ describe("analytics", () => {
     expect(summary.status).toBe(200);
     expect(summary.body.total).toBe(1);
     expect(summary.body.by_source.linkedin).toBe(1);
+    expect(summary.body.by_source_performance).toHaveLength(1);
+    expect(summary.body.by_source_performance[0].source).toBe("linkedin");
     expect(summary.body.funnel.rejected).toBe(1);
     expect(summary.body.funnel.positive_progress).toBe(0);
     expect(summary.body.conversion.ever_rejected).toBe(1);
     expect(summary.body.conversion).toHaveProperty("rate_interview");
+    expect(summary.body.this_month).toHaveProperty("applications_logged");
+    expect(summary.body.pace_weeks).toHaveLength(8);
 
     const list = await request(app).get("/api/v1/applications");
     expect(list.body[0].statuses_ever_reached).toContain("rejected");
